@@ -1,0 +1,7 @@
+{# Flexible content "hero" layout. `block` is the current flex row. #}
+<div class="block block--hero">
+  <h2>{{ block.heading }}</h2>
+  {% if block.image %}
+    <img src="{{ block.image.url }}" alt="{{ block.image.alt }}">
+  {% endif %}
+</div>

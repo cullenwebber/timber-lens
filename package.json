@@ -1,0 +1,104 @@
+{
+  "name": "timber-lens",
+  "displayName": "Timber Lens",
+  "description": "Timber + Twig + ACF aware autocomplete, hover, diagnostics and navigation for WordPress projects.",
+  "version": "0.1.1",
+  "publisher": "timber-lens",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Other"
+  ],
+  "keywords": [
+    "timber",
+    "twig",
+    "acf",
+    "wordpress",
+    "php"
+  ],
+  "activationEvents": [
+    "onLanguage:twig",
+    "workspaceContains:**/*.twig",
+    "workspaceContains:**/acf-json/**"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "twig",
+        "aliases": [
+          "Twig",
+          "twig"
+        ],
+        "extensions": [
+          ".twig"
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "command": "timberLens.reindex",
+        "title": "Timber Lens: Reindex Workspace"
+      }
+    ],
+    "configuration": {
+      "title": "Timber Lens",
+      "properties": {
+        "timberLens.twigRoots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "views",
+            "templates",
+            "components",
+            "blocks",
+            "partials"
+          ],
+          "description": "Directory names treated as Twig template roots. Include paths are resolved relative to these."
+        },
+        "timberLens.acfJsonPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "acf-json"
+          ],
+          "description": "Directories (relative to each workspace folder) scanned for ACF Local JSON."
+        },
+        "timberLens.phpScanGlobs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/*.php"
+          ],
+          "description": "Glob patterns for PHP files scanned for Timber render context."
+        },
+        "timberLens.enableBuiltinGlobals": {
+          "type": "boolean",
+          "default": true,
+          "description": "Suggest built-in Timber globals (post, site, user, menu) as fallback completions."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run compile",
+    "test": "npm run compile && node ./out/test/run.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.0"
+  }
+}

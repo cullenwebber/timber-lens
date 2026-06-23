@@ -1,0 +1,56 @@
+{
+  "key": "group_home_page",
+  "title": "Home Page",
+  "fields": [
+    { "key": "field_hero_heading", "name": "hero_heading", "label": "Hero Heading", "type": "text" },
+    { "key": "field_hero_text", "name": "hero_text", "label": "Hero Text", "type": "textarea" },
+    {
+      "key": "field_services",
+      "name": "services",
+      "label": "Services",
+      "type": "group",
+      "sub_fields": [
+        { "key": "field_services_heading", "name": "heading", "label": "Heading", "type": "text" },
+        { "key": "field_services_content", "name": "content", "label": "Content", "type": "wysiwyg" },
+        { "key": "field_services_link", "name": "link", "label": "Link", "type": "link" },
+        {
+          "key": "field_services_service",
+          "name": "service",
+          "label": "Service",
+          "type": "repeater",
+          "sub_fields": [
+            { "key": "field_service_title", "name": "title", "label": "Title", "type": "text" },
+            { "key": "field_service_desc", "name": "desc", "label": "Description", "type": "textarea" },
+            { "key": "field_service_icon", "name": "icon", "label": "Icon", "type": "image" }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "field_page_builder",
+      "name": "page_builder",
+      "label": "Page Builder",
+      "type": "flexible_content",
+      "layouts": {
+        "layout_hero": {
+          "key": "layout_hero",
+          "name": "hero",
+          "label": "Hero",
+          "sub_fields": [
+            { "key": "field_block_hero_heading", "name": "heading", "label": "Heading", "type": "text" },
+            { "key": "field_block_hero_image", "name": "image", "label": "Image", "type": "image" }
+          ]
+        },
+        "layout_cta": {
+          "key": "layout_cta",
+          "name": "cta",
+          "label": "Call To Action",
+          "sub_fields": [
+            { "key": "field_block_cta_label", "name": "label", "label": "Label", "type": "text" },
+            { "key": "field_block_cta_link", "name": "button", "label": "Button", "type": "link" }
+          ]
+        }
+      }
+    }
+  ]
+}

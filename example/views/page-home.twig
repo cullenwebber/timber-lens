@@ -1,0 +1,45 @@
+{# Timber Lens demo template. Try the completions noted in each comment. #}
+
+<section class="hero">
+  {# Type `hero.` -> heading, text (from PHP context) #}
+  <h1>{{ hero.heading }}</h1>
+  <p>{{ hero.text }}</p>
+</section>
+
+<section class="services">
+  {# Type `post.services.` -> heading, content, link, service #}
+  <h2>{{ post.services.heading }}</h2>
+  <div>{{ post.services.content }}</div>
+
+  {# Type `post.services.link.` -> url, title, target #}
+  <a href="{{ post.services.link.url }}" target="{{ post.services.link.target }}">
+    {{ post.services.link.title }}
+  </a>
+
+  {# Repeater loop: type `service.` -> title, desc, icon #}
+  {% for service in post.services.service %}
+    <article>
+      <h3>{{ service.title }}</h3>
+      <p>{{ service.desc }}</p>
+    </article>
+  {% endfor %}
+</section>
+
+{# post.meta('  -> all ACF field names #}
+<p>{{ post.meta('hero_heading') }}</p>
+
+{# Flexible content: type `block.` -> acf_fc_layout (+ layout subfields) #}
+{% for block in post.meta('page_builder') %}
+  <div data-block="{{ block.acf_fc_layout }}">
+    {{ include('blocks/' ~ block.acf_fc_layout ~ '.twig', ignore_missing = true) }}
+  </div>
+{% endfor %}
+
+{# Static include: type `part` -> partials/buttons/button.twig #}
+{% include 'partials/buttons/button.twig' %}
+
+{# Diagnostic demo: this path does not exist -> warning #}
+{% include 'partials/does-not-exist.twig' %}
+
+{# Diagnostic demo: unknown ACF field -> warning #}
+<p>{{ post.meta('not_a_real_field') }}</p>
