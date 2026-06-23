@@ -14,6 +14,8 @@ export interface ResolverDeps {
   contextVars: Map<string, TypeShape>;
   acf: AcfIndex;
   enableGlobals: boolean;
+  /** Treat otherwise-unresolved object variables as Timber posts. */
+  assumePostVariables: boolean;
 }
 
 /**
@@ -37,9 +39,11 @@ export class ContextResolver {
       const iterable = this.resolveExpr(loop.iterableExpr, loopVars);
       let itemShape: TypeShape;
       if (iterable && iterable.kind === 'array') {
-        itemShape = iterable.item ?? unknownShape();
+        itemShape = iterable.item ?? this.fallbackShape() ?? unknownShape();
       } else {
-        itemShape = unknownShape();
+        // e.g. `for project in fn('get_featured_projects')` — the iterable is
+        // an untraceable function call; assume the items are Timber posts.
+        itemShape = this.fallbackShape() ?? unknownShape();
       }
       loopVars.set(loop.varName, itemShape);
     }
@@ -98,7 +102,14 @@ export class ContextResolver {
     if (name === 'site' || name === 'user' || name === 'menu') {
       return builtinGlobalShape(name);
     }
-    return undefined;
+    // Last resort: in a Timber project an unresolved `x.field` is almost always
+    // a post (loop item, included variable, query result).
+    return this.fallbackShape();
+  }
+
+  /** Post-like shape used when a variable cannot otherwise be resolved. */
+  private fallbackShape(): TypeShape | undefined {
+    return this.deps.assumePostVariables ? this.postShape : undefined;
   }
 
   get post(): TypeShape {
@@ -130,6 +141,11 @@ function buildPostShape(acf: AcfIndex): TypeShape {
     status: stringShape(),
     thumbnail: stringObjectShape(['src', 'url', 'alt', 'title']),
     author: stringObjectShape(['name', 'link', 'id']),
+    categories: { kind: 'array', item: termShape() },
+    category: termShape(),
+    tags: { kind: 'array', item: termShape() },
+    terms: { kind: 'array', item: termShape() },
+    children: { kind: 'array', item: unknownShape() },
   };
   for (const [k, v] of Object.entries(builtins)) {
     keys.set(k, v);
@@ -174,6 +190,21 @@ function builtinGlobalShape(name: string): TypeShape {
       ['name', stringShape()],
     ]),
     { builtin: true, label: 'Timber menu' }
+  );
+}
+
+/** A Timber term (taxonomy) object. */
+function termShape(): TypeShape {
+  return objectShape(
+    new Map<string, TypeShape>([
+      ['id', { kind: 'number' }],
+      ['name', stringShape()],
+      ['title', stringShape()],
+      ['slug', stringShape()],
+      ['link', stringShape()],
+      ['taxonomy', stringShape()],
+    ]),
+    { label: 'Timber term' }
   );
 }
 

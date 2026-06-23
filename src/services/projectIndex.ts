@@ -139,6 +139,7 @@ export class ProjectIndex {
       contextVars: ctx?.vars ?? new Map(),
       acf: this.acf,
       enableGlobals: this.settings.enableBuiltinGlobals,
+      assumePostVariables: this.settings.assumePostVariables,
     });
   }
 

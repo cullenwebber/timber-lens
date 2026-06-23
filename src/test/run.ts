@@ -141,6 +141,7 @@ function resolverFor(templatePath: string): ContextResolver {
     contextVars: ctx?.vars ?? new Map(),
     acf,
     enableGlobals: true,
+    assumePostVariables: true,
   });
 }
 
@@ -274,6 +275,30 @@ test('layoutRow exposes acf_fc_layout + layout subfields', () => {
 });
 test('unknown layout name yields no row', () => {
   assert.strictEqual(acf.layoutRow('not_a_layout'), undefined);
+});
+
+console.log('Post-variable fallback (unresolved loop / included vars)');
+test('loop over fn() yields a post-like item with ACF + builtins', () => {
+  const r = resolverFor('views/page-home.twig');
+  const doc = "{% for project in fn('get_featured_projects') %}\n  {{ project. }}\n{% endfor %}";
+  const keys = memberKeys(r, doc, 'project.');
+  assert.ok(keys.includes('title'), 'missing post builtin title');
+  assert.ok(keys.includes('thumbnail'), 'missing post builtin thumbnail');
+  // top-level ACF fields are exposed on the post-like shape
+  assert.ok(keys.includes('services'), 'missing ACF field services');
+});
+test('unresolved variable resolves to post (e.g. included project)', () => {
+  const r = resolverFor('views/page-home.twig');
+  const keys = memberKeys(r, '{{ project. }}', 'project.');
+  assert.ok(keys.includes('title') && keys.includes('categories'));
+});
+test('post.categories item is a term with title', () => {
+  const r = resolverFor('views/page-home.twig');
+  const doc = '{% for category in post.categories %}{{ category. }}{% endfor %}';
+  assert.deepStrictEqual(
+    memberKeys(r, doc, 'category.').sort(),
+    ['id', 'link', 'name', 'slug', 'taxonomy', 'title']
+  );
 });
 
 console.log('\nHover/source metadata');

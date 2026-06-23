@@ -5,6 +5,7 @@ export interface TimberLensSettings {
   acfJsonPaths: string[];
   phpScanGlobs: string[];
   enableBuiltinGlobals: boolean;
+  assumePostVariables: boolean;
 }
 
 const DEFAULTS: TimberLensSettings = {
@@ -12,6 +13,7 @@ const DEFAULTS: TimberLensSettings = {
   acfJsonPaths: ['acf-json'],
   phpScanGlobs: ['**/*.php'],
   enableBuiltinGlobals: true,
+  assumePostVariables: true,
 };
 
 export function getSettings(): TimberLensSettings {
@@ -23,6 +25,10 @@ export function getSettings(): TimberLensSettings {
     enableBuiltinGlobals: cfg.get<boolean>(
       'enableBuiltinGlobals',
       DEFAULTS.enableBuiltinGlobals
+    ),
+    assumePostVariables: cfg.get<boolean>(
+      'assumePostVariables',
+      DEFAULTS.assumePostVariables
     ),
   };
 }
