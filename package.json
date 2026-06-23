@@ -2,7 +2,7 @@
   "name": "timber-lens",
   "displayName": "Timber Lens",
   "description": "Timber + Twig + ACF aware autocomplete, hover, diagnostics and navigation for WordPress projects.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "timber-lens",
   "license": "MIT",
   "engines": {

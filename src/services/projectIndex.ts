@@ -239,14 +239,27 @@ export class ProjectIndex {
   }
 
   private registerWatchers(): void {
-    const watcher = vscode.workspace.createFileSystemWatcher(
-      '**/*.{php,twig,json}'
-    );
     const onChange = () => this.scheduleRebuild();
-    watcher.onDidCreate(onChange);
-    watcher.onDidChange(onChange);
-    watcher.onDidDelete(onChange);
-    this.disposables.push(watcher);
+
+    // Separate watchers per extension are more reliable across platforms than a
+    // single brace glob, especially for externally-written ACF JSON.
+    for (const pattern of ['**/*.php', '**/*.twig', '**/*.json']) {
+      const watcher = vscode.workspace.createFileSystemWatcher(pattern);
+      watcher.onDidCreate(onChange);
+      watcher.onDidChange(onChange);
+      watcher.onDidDelete(onChange);
+      this.disposables.push(watcher);
+    }
+
+    // Belt-and-braces: if a relevant file is saved in the editor (e.g. an ACF
+    // JSON edited by hand), reindex even if the FS watcher missed the write.
+    this.disposables.push(
+      vscode.workspace.onDidSaveTextDocument((doc) => {
+        if (/\.(php|twig|json)$/i.test(doc.fileName)) {
+          this.scheduleRebuild();
+        }
+      })
+    );
   }
 }
 
