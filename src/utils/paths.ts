@@ -26,12 +26,16 @@ export function computeRelPaths(absPath: string, twigRoots: string[]): string[] 
     const needle = `/${root}/`;
     const idx = posix.lastIndexOf(needle);
     if (idx !== -1) {
-      // Keep the root segment itself: ".../partials/x.twig" -> "partials/x.twig".
+      // Keep the root segment itself: ".../templates/icons/x.twig" -> "templates/icons/x.twig".
       result.add(posix.slice(idx + 1));
+      // Timber's $dirname entries are loader roots, so includes are written
+      // *relative to* the root: ".../templates/icons/x.twig" -> "icons/x.twig".
+      result.add(posix.slice(idx + needle.length));
     }
     // Also handle a path that *starts* with the root (no leading slash form).
     if (posix.startsWith(`${root}/`)) {
       result.add(posix);
+      result.add(posix.slice(root.length + 1));
     }
   }
 
