@@ -14,25 +14,11 @@ export function resolveIncludePath(
 }
 
 /**
- * One include path per template for completion. Normally the template's
- * preferred includePath; when the typed prefix names a directory the preferred
- * path does not start with (e.g. "views/"), the alias matching it instead.
- * Fuzzy filtering against the prefix is left to the editor.
+ * One include path per template for completion: its preferred includePath.
+ * Filtering against the typed prefix is left to the editor.
  */
-export function includeCandidates(
-  prefix: string,
-  templates: TwigTemplate[]
-): string[] {
-  const norm = toPosix(prefix);
-  const out = new Set<string>();
-  for (const t of templates) {
-    let path = t.includePath;
-    if (norm.includes('/') && !path.startsWith(norm)) {
-      path = t.relPaths.find((rel) => rel.startsWith(norm)) ?? path;
-    }
-    out.add(path);
-  }
-  return [...out].sort();
+export function includeCandidates(templates: TwigTemplate[]): string[] {
+  return [...new Set(templates.map((t) => t.includePath))].sort();
 }
 
 /**

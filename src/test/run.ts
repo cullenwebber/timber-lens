@@ -231,28 +231,25 @@ test("include 'part suggests partials/buttons/button.twig", () => {
   const before = "{% include 'part";
   const ctx = detectCursorContext(before);
   assert.strictEqual(ctx.kind, 'path');
-  const cands = includeCandidates(ctx.pathPrefix!, templates);
+  const cands = includeCandidates(templates);
   assert.ok(cands.includes('partials/buttons/button.twig'), cands.join(','));
 });
-test('each template is suggested once, by its preferred include path', () => {
-  assert.deepStrictEqual(includeCandidates('', templates), [
-    'blocks/hero_block.twig',
-    'page-home.twig',
+test('each template is suggested once, starting from its root folder', () => {
+  assert.deepStrictEqual(includeCandidates(templates), [
     'partials/buttons/button.twig',
+    'templates/blocks/hero_block.twig',
+    'views/page-home.twig',
   ]);
 });
-test('nested roots prefer the path relative to the Timber loader root', () => {
+test('nested roots start from the Timber loader root', () => {
   const nested = buildTwigIndex(
     ['/theme/views/partials/buttons/button.twig', '/theme/templates/components/card.twig'],
     TWIG_ROOTS
   );
-  assert.deepStrictEqual(includeCandidates('', nested), [
-    'components/card.twig',
-    'partials/buttons/button.twig',
+  assert.deepStrictEqual(includeCandidates(nested), [
+    'templates/components/card.twig',
+    'views/partials/buttons/button.twig',
   ]);
-});
-test("typed directory prefix 'views/' switches to the matching alias", () => {
-  assert.ok(includeCandidates('views/', templates).includes('views/page-home.twig'));
 });
 test('resolveIncludePath finds existing template', () => {
   assert.ok(resolveIncludePath('partials/buttons/button.twig', templates));

@@ -45,7 +45,7 @@ export class TwigCompletionProvider implements vscode.CompletionItemProvider {
 
   private completePath(prefix: string, position: vscode.Position): vscode.CompletionItem[] {
     const range = backRange(position, prefix.length);
-    return includeCandidates(prefix, this.index.twigTemplates).map((rel) => {
+    return includeCandidates(this.index.twigTemplates).map((rel) => {
       const item = new vscode.CompletionItem(rel, vscode.CompletionItemKind.File);
       item.range = range;
       item.insertText = rel;
