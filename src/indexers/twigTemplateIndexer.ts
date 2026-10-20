@@ -1,5 +1,5 @@
 import { TwigTemplate } from '../models/template';
-import { computeRelPaths, toPosix } from '../utils/paths';
+import { canonicalIncludePath, computeRelPaths, toPosix } from '../utils/paths';
 
 /** Build the Twig template index from a list of absolute .twig paths. */
 export function buildTwigIndex(
@@ -13,6 +13,7 @@ export function buildTwigIndex(
       const posix = toPosix(fsPath);
       relPaths.push(posix.slice(posix.lastIndexOf('/') + 1));
     }
-    return { fsPath, relPaths };
+    const includePath = canonicalIncludePath(fsPath, twigRoots) ?? relPaths[0];
+    return { fsPath, relPaths, includePath };
   });
 }

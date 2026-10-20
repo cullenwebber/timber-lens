@@ -3,6 +3,7 @@ import { ProjectIndex } from '../services/projectIndex';
 import { detectCursorContext, findEnclosingLoops } from '../parsers/twigContextParser';
 import { TypeShape } from '../models/context';
 import { BUILTIN_GLOBALS } from '../services/contextResolver';
+import { includeCandidates } from '../services/templateResolver';
 
 export class TwigCompletionProvider implements vscode.CompletionItemProvider {
   constructor(private readonly index: ProjectIndex) {}
@@ -44,23 +45,14 @@ export class TwigCompletionProvider implements vscode.CompletionItemProvider {
 
   private completePath(prefix: string, position: vscode.Position): vscode.CompletionItem[] {
     const range = backRange(position, prefix.length);
-    const seen = new Set<string>();
-    const items: vscode.CompletionItem[] = [];
-    for (const t of this.index.twigTemplates) {
-      for (const rel of t.relPaths) {
-        if (seen.has(rel)) {
-          continue;
-        }
-        seen.add(rel);
-        const item = new vscode.CompletionItem(rel, vscode.CompletionItemKind.File);
-        item.range = range;
-        item.insertText = rel;
-        item.filterText = rel;
-        item.detail = 'Twig template';
-        items.push(item);
-      }
-    }
-    return items;
+    return includeCandidates(prefix, this.index.twigTemplates).map((rel) => {
+      const item = new vscode.CompletionItem(rel, vscode.CompletionItemKind.File);
+      item.range = range;
+      item.insertText = rel;
+      item.filterText = rel;
+      item.detail = 'Twig template';
+      return item;
+    });
   }
 
   // ---- post.meta('...') -------------------------------------------------
