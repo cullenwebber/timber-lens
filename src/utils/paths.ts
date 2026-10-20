@@ -44,17 +44,18 @@ export function computeRelPaths(absPath: string, twigRoots: string[]): string[] 
 
 /**
  * Directory names Timber registers as loader roots by default (Timber 1 uses
- * `views`, Timber 2 `templates` and `views`). Other configured roots (blocks,
- * partials, ...) are ordinary folders that may sit inside them.
+ * `views`, Timber 2 `templates` and `views`). Includes are written relative to
+ * these, so the folder itself is never part of the path. Other configured roots
+ * (blocks, partials, ...) are ordinary folders whose name stays in the path.
  */
 const TIMBER_LOADER_DIRS = ['views', 'templates'];
 
 /**
- * The one include path to suggest for a template, always starting at a root
- * folder. From the innermost Timber loader root when there is one
- * (".../views/partials/x.twig" -> "views/partials/x.twig"), otherwise from the
- * outermost configured root (".../partials/buttons/x.twig" ->
- * "partials/buttons/x.twig"). Always one of computeRelPaths(), so it resolves.
+ * The one include path to suggest for a template. Relative to the innermost
+ * Timber loader root when there is one (".../views/partials/x.twig" ->
+ * "partials/x.twig"), otherwise starting at the outermost configured root
+ * (".../partials/buttons/x.twig" -> "partials/buttons/x.twig"). Always one of
+ * computeRelPaths(), so it resolves.
  */
 export function canonicalIncludePath(
   absPath: string,
@@ -62,14 +63,18 @@ export function canonicalIncludePath(
 ): string | undefined {
   const posix = '/' + toPosix(absPath).replace(/^\/+/, '');
 
-  let loaderStart = -1;
+  let loaderEnd = -1;
   for (const root of twigRoots) {
-    if (TIMBER_LOADER_DIRS.includes(root)) {
-      loaderStart = Math.max(loaderStart, posix.lastIndexOf(`/${root}/`));
+    if (!TIMBER_LOADER_DIRS.includes(root)) {
+      continue;
+    }
+    const idx = posix.lastIndexOf(`/${root}/`);
+    if (idx !== -1) {
+      loaderEnd = Math.max(loaderEnd, idx + root.length + 2);
     }
   }
-  if (loaderStart !== -1) {
-    return posix.slice(loaderStart + 1);
+  if (loaderEnd !== -1) {
+    return posix.slice(loaderEnd);
   }
 
   let outermost = -1;

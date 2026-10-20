@@ -234,21 +234,21 @@ test("include 'part suggests partials/buttons/button.twig", () => {
   const cands = includeCandidates(templates);
   assert.ok(cands.includes('partials/buttons/button.twig'), cands.join(','));
 });
-test('each template is suggested once, starting from its root folder', () => {
+test('each template is suggested once, relative to views/templates', () => {
   assert.deepStrictEqual(includeCandidates(templates), [
+    'blocks/hero_block.twig',
+    'page-home.twig',
     'partials/buttons/button.twig',
-    'templates/blocks/hero_block.twig',
-    'views/page-home.twig',
   ]);
 });
-test('nested roots start from the Timber loader root', () => {
+test('nested roots are relative to the Timber loader root', () => {
   const nested = buildTwigIndex(
     ['/theme/views/partials/buttons/button.twig', '/theme/templates/components/card.twig'],
     TWIG_ROOTS
   );
   assert.deepStrictEqual(includeCandidates(nested), [
-    'templates/components/card.twig',
-    'views/partials/buttons/button.twig',
+    'components/card.twig',
+    'partials/buttons/button.twig',
   ]);
 });
 test('resolveIncludePath finds existing template', () => {
