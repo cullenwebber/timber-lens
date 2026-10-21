@@ -334,6 +334,7 @@ export function applyStructure(
   newKey: (prefix: string) => string = uniqueKey
 ): ApplyReport {
   const report: ApplyReport = { added: [], removed: [], retyped: [] };
+  const before = JSON.stringify(loc.group);
   let layout = loc.layout;
   if (!layout) {
     layout = {
@@ -362,7 +363,10 @@ export function applyStructure(
     report,
     newKey
   );
-  loc.group.modified = Math.floor(Date.now() / 1000);
+  // A newer `modified` than the database copy is what makes ACF offer to sync.
+  if (JSON.stringify(loc.group) !== before) {
+    loc.group.modified = Math.floor(Date.now() / 1000);
+  }
   return report;
 }
 

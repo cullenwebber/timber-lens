@@ -44,6 +44,9 @@ import {
 import { parseGlobalContext, parseTwigExtensions } from '../parsers/phpTwigExtensions';
 import { phpValueToShape } from '../indexers/phpContextIndexer';
 import { checkMemberAccess, shapeOfExpr, unusedStructureFields } from '../services/twigChecks';
+import { entryRemovalRange, passThroughInsert } from '../parsers/twigTemplateParser';
+import { newTemplatePath } from '../services/templateResolver';
+import { pathLiterals, referenceEdits, TextEdit } from '../services/templateMoves';
 import { AcfLayout } from '../models/acf';
 import { TypeShape } from '../models/context';
 
@@ -532,7 +535,18 @@ test('applying keeps existing field settings and adds new fields with keys', () 
   assert.strictEqual(subs[1].label, 'Image');
   assert.strictEqual(subs[1].return_format, 'array');
   assert.strictEqual(subs[2].sub_fields[0].parent_repeater, subs[2].key);
-  assert.ok(typeof data.modified === 'number');
+  assert.ok(data.modified > 1_700_000_000);
+});
+test('applying an unchanged structure leaves modified alone', () => {
+  const data = JSON.parse(ACF_JSON);
+  data.modified = 1;
+  data.fields[3].layouts.layout_a.sub_fields[0].label = 'Tagline';
+  const doc = '{# acf-fields: page_builder / hero_block "Hero"\n  tagline: text "Tagline"\nend-acf-fields #}';
+  applyStructure(findLayout(data, 'page_builder', 'hero_block')[0], parseStructure(doc).block!);
+  assert.strictEqual(data.modified, 1);
+  const changed = '{# acf-fields: page_builder / hero_block "Hero"\n  tagline: text "Tag line"\nend-acf-fields #}';
+  applyStructure(findLayout(data, 'page_builder', 'hero_block')[0], parseStructure(changed).block!);
+  assert.ok(data.modified > 1);
 });
 test('applying reports removed and retyped fields', () => {
   const data = JSON.parse(ACF_JSON);
@@ -877,6 +891,211 @@ test('unused structure fields, read from markup attributes too', () => {
   ).block!;
   const body = '<a href="{{ block.link.url }}">{% for i in block.items %}{{ i.title }}{% endfor %}</a>';
   assert.deepStrictEqual(unusedStructureFields(struct.fields, body, 'block').map((f) => f.name), ['heading', 'icon']);
+});
+
+
+// ---- Quick fixes -----------------------------------------------------------
+
+function applyEdits(text: string, edits: TextEdit[]): string {
+  return [...edits].sort((a, b) => b.start - a.start).reduce((t, e) => t.slice(0, e.start) + e.newText + t.slice(e.end), text);
+}
+
+test('member problems carry the suggested field', () => {
+  const resolver = new ContextResolver({
+    contextVars: new Map([['block', layoutRowShape('x', [{ name: 'title', type: 'text' }])]]),
+    acf: buildAcfIndex([]),
+    enableGlobals: false,
+    assumePostVariables: false,
+  });
+  const [p] = checkMemberAccess('{{ block.titel }}', (chain) => resolver.resolveExpr(chain, new Map()));
+  assert.strictEqual(p.suggestion, 'title');
+});
+test('removing include hash entries keeps the hash tidy', () => {
+  const doc = "{% include 'x.twig' with { a: 1, b: 2, c: 3 } %}";
+  const [tag] = parseIncludes(doc);
+  const drop = (i: number) => {
+    const [start, end] = entryRemovalRange(doc, tag, i);
+    return doc.slice(0, start) + doc.slice(end);
+  };
+  assert.strictEqual(drop(0), "{% include 'x.twig' with { b: 2, c: 3 } %}");
+  assert.strictEqual(drop(1), "{% include 'x.twig' with { a: 1, c: 3 } %}");
+  assert.strictEqual(drop(2), "{% include 'x.twig' with { a: 1, b: 2 } %}");
+  const one = "{% include 'x.twig' with { a: 1 } %}";
+  const [range0] = [entryRemovalRange(one, parseIncludes(one)[0], 0)];
+  assert.strictEqual(one.slice(0, range0[0]) + one.slice(range0[1]), "{% include 'x.twig' with { } %}");
+});
+test('passing missing variables to an only include', () => {
+  const ins = (doc: string) => {
+    const r = passThroughInsert(doc, parseIncludes(doc)[0], ['link', 'title']);
+    return doc.slice(0, r.at) + r.text + doc.slice(r.at);
+  };
+  assert.strictEqual(
+    ins("{% include 'b.twig' with { a: 1 } only %}"),
+    "{% include 'b.twig' with { a: 1, link: link, title: title } only %}"
+  );
+  assert.strictEqual(ins("{% include 'b.twig' only %}"), "{% include 'b.twig' with { link: link, title: title } only %}");
+  assert.strictEqual(ins("{% include 'b.twig' with {} only %}"), "{% include 'b.twig' with { link: link, title: title } only %}");
+  assert.strictEqual(ins("{{ include('b.twig') }}"), "{{ include('b.twig', { link: link, title: title }) }}");
+});
+test('a missing include is created under the root its folder lives in', () => {
+  const templates = buildTwigIndex(
+    ['/t/views/page.twig', '/t/views/partials/a.twig', '/t/views/blocks/hero.twig'],
+    ['views', 'blocks', 'partials']
+  );
+  assert.strictEqual(newTemplatePath('partials/new.twig', templates), '/t/views/partials/new.twig');
+  assert.strictEqual(newTemplatePath('cards/new.twig', templates), '/t/views/cards/new.twig');
+});
+
+// ---- Clone fields ----------------------------------------------------------
+
+const CLONE_SOURCE = JSON.stringify({
+  key: 'group_cta',
+  title: 'CTA',
+  fields: [
+    { key: 'field_c1', name: 'cta_heading', type: 'text' },
+    { key: 'field_c2', name: 'cta_link', type: 'link' },
+  ],
+});
+const CLONE_USER = JSON.stringify({
+  key: 'group_page',
+  title: 'Page',
+  fields: [
+    { key: 'field_p1', name: 'intro', type: 'text' },
+    { key: 'field_p2', name: 'cta', type: 'clone', clone: ['group_cta'], display: 'seamless', prefix_name: 0 },
+    { key: 'field_p3', name: 'promo', type: 'clone', clone: ['group_cta'], display: 'group', prefix_name: 0 },
+    { key: 'field_p4', name: 'alt', type: 'clone', clone: ['field_c1'], display: 'seamless', prefix_name: 1 },
+    { key: 'field_p5', name: 'missing', type: 'clone', clone: ['group_nowhere'], display: 'seamless' },
+    {
+      key: 'field_p6',
+      name: 'page_builder',
+      type: 'flexible_content',
+      layouts: {
+        l1: {
+          name: 'banner',
+          sub_fields: [
+            { key: 'field_b1', name: 'title', type: 'text' },
+            { key: 'field_b2', name: 'banner_cta', type: 'clone', clone: ['group_cta'], display: 'seamless' },
+          ],
+        },
+      },
+    },
+  ],
+});
+
+test('seamless clones put the cloned fields beside the clone', () => {
+  const acf = buildAcfIndex([CLONE_USER, CLONE_SOURCE]);
+  const post = new ContextResolver({ contextVars: new Map(), acf, enableGlobals: true, assumePostVariables: true });
+  const keys = post.resolveExpr('post', new Map())?.keys;
+  assert.ok(keys?.has('cta_heading') && keys.has('cta_link'));
+  assert.strictEqual(post.resolveExpr('post.cta_link.url', new Map())?.kind, 'string');
+  // prefix_name: 1 stores them under the clone's name.
+  assert.ok(keys?.has('alt_cta_heading') && !keys.has('alt'));
+  assert.ok(acf.hasField('alt_cta_heading'));
+  // Clones of keys not in the workspace stay unknown.
+  assert.strictEqual(acf.shapeByName('missing')?.kind, 'unknown');
+});
+test('group clones are an object of the cloned fields', () => {
+  const acf = buildAcfIndex([CLONE_USER, CLONE_SOURCE]);
+  const promo = acf.shapeByName('promo');
+  assert.strictEqual(promo?.kind, 'object');
+  assert.deepStrictEqual([...promo!.keys!.keys()], ['cta_heading', 'cta_link']);
+  const resolver = new ContextResolver({
+    contextVars: new Map([['promo', promo!]]),
+    acf,
+    enableGlobals: false,
+    assumePostVariables: false,
+  });
+  const problems = checkMemberAccess('{{ promo.cta_headng }}', (chain) => resolver.resolveExpr(chain, new Map()));
+  assert.strictEqual(problems[0]?.suggestion, 'cta_heading');
+});
+test('clones inside flexible content layouts reach the block row', () => {
+  const acf = buildAcfIndex([CLONE_USER, CLONE_SOURCE]);
+  const row = acf.layoutRow('banner');
+  assert.deepStrictEqual([...row!.keys!.keys()], ['acf_fc_layout', 'title', 'cta_heading', 'cta_link']);
+  // The structure comment still shows the clone itself, so applying it keeps the clone.
+  const layout = acf.flexibleLayouts.find((l) => l.layout.name === 'banner')!.layout;
+  assert.ok(formatStructure('page_builder', 'banner', 'Banner', layout.subFields).includes('banner_cta: clone'));
+  assert.strictEqual(acf.flexibleLayouts.filter((l) => l.layout.name === 'banner').length, 1);
+});
+test('a clone of a group containing itself does not loop', () => {
+  const loop = JSON.stringify({
+    key: 'group_loop',
+    title: 'Loop',
+    fields: [
+      { key: 'field_l1', name: 'name', type: 'text' },
+      { key: 'field_l2', name: 'again', type: 'clone', clone: ['group_loop'], display: 'group' },
+    ],
+  });
+  const acf = buildAcfIndex([loop]);
+  assert.strictEqual(acf.shapeByName('again')?.kind, 'object');
+});
+
+// ---- Moving templates ------------------------------------------------------
+
+const MOVE_ROOTS = ['views', 'templates', 'components', 'blocks', 'partials'];
+const MOVE_FILES = ['/t/views/page.twig', '/t/views/partials/button.twig', '/t/views/blocks/hero.twig'];
+const moveIndex = buildTwigIndex(MOVE_FILES, MOVE_ROOTS);
+const resolveMove = (p: string) => resolveIncludePath(p, moveIndex)?.fsPath;
+
+test('finds template path literals in Twig code and PHP', () => {
+  const twig = "{# 'nope.twig' #}<p>'text.twig'</p>{% include 'partials/button.twig' %}{{ include('blocks/' ~ name ~ '.twig') }}";
+  assert.deepStrictEqual(pathLiterals(twig, 'twig').map((l) => l.value), ['partials/button.twig', 'blocks/', '.twig']);
+  const php = "<?php Timber::render(['single-' . $t . '.twig', 'single.twig'], $c); $x = \"$dir/a.twig\";";
+  assert.deepStrictEqual(pathLiterals(php, 'php').map((l) => l.value), ['.twig', 'single.twig']);
+});
+test('moving a template updates includes, keeping each path style', () => {
+  const doc = "{% include 'partials/button.twig' with { a: 1 } %}{% include \"button.twig\" %}{% include 'page.twig' %}";
+  const { edits } = referenceEdits(
+    pathLiterals(doc, 'twig'),
+    [{ from: '/t/views/partials/button.twig', to: '/t/views/components/ui/button.twig' }],
+    resolveMove,
+    MOVE_ROOTS
+  );
+  assert.strictEqual(
+    applyEdits(doc, edits),
+    "{% include 'components/ui/button.twig' with { a: 1 } %}{% include \"components/ui/button.twig\" %}{% include 'page.twig' %}"
+  );
+});
+test('a path relative to a nested root stays relative to it when the target stays inside', () => {
+  const doc = "{% include 'button.twig' %}";
+  const { edits } = referenceEdits(
+    pathLiterals(doc, 'twig'),
+    [{ from: '/t/views/partials/button.twig', to: '/t/views/partials/ui/btn.twig' }],
+    resolveMove,
+    MOVE_ROOTS
+  );
+  assert.strictEqual(applyEdits(doc, edits), "{% include 'ui/btn.twig' %}");
+});
+test('moving a template updates PHP render paths', () => {
+  const php = "<?php Timber::render('views/page.twig', $context); Timber::render('page.twig');";
+  const { edits } = referenceEdits(
+    pathLiterals(php, 'php'),
+    [{ from: '/t/views/page.twig', to: '/t/views/pages/home.twig' }],
+    (p) => resolveIncludePath(p.replace(/^views\//, ''), moveIndex)?.fsPath,
+    MOVE_ROOTS
+  );
+  assert.strictEqual(applyEdits(php, edits), "<?php Timber::render('views/pages/home.twig', $context); Timber::render('pages/home.twig');");
+});
+test('renaming a folder updates static and dynamic paths into it', () => {
+  const doc = "{% include 'blocks/hero.twig' %}{% include 'blocks/' ~ block.acf_fc_layout ~ '.twig' %}";
+  const { edits } = referenceEdits(
+    pathLiterals(doc, 'twig'),
+    [{ from: '/t/views/blocks', to: '/t/views/sections' }],
+    resolveMove,
+    MOVE_ROOTS,
+    MOVE_FILES
+  );
+  assert.strictEqual(applyEdits(doc, edits), "{% include 'sections/hero.twig' %}{% include 'sections/' ~ block.acf_fc_layout ~ '.twig' %}");
+});
+test('moving a template out of every Twig root reports it', () => {
+  const doc = "{% include 'partials/button.twig' %}";
+  const result = referenceEdits(
+    pathLiterals(doc, 'twig'),
+    [{ from: '/t/views/partials/button.twig', to: '/t/old/button.twig' }],
+    resolveMove,
+    MOVE_ROOTS
+  );
+  assert.deepStrictEqual(result, { edits: [], stranded: ['partials/button.twig'] });
 });
 
 console.log(`\n${passed} checks passed.`);

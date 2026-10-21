@@ -157,6 +157,11 @@
           "type": "boolean",
           "default": true,
           "description": "Treat otherwise-unresolved object variables (loop items, included variables, query results) as Timber posts, exposing post properties and ACF fields. Disable for stricter completion."
+        },
+        "timberLens.updateReferencesOnMove": {
+          "type": "boolean",
+          "default": true,
+          "description": "When a Twig template or a folder of templates is moved or renamed in VS Code, update the include / extends / embed paths in Twig and the template paths in PHP that point at it."
         }
       }
     },

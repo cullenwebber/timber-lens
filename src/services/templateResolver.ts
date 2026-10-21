@@ -54,3 +54,35 @@ export function findContextsForTwig(
     );
   });
 }
+
+/**
+ * Where a new template for the include path `relPath` belongs: under the Twig
+ * root the project's includes are written against, preferring a root that
+ * already has the path's first folder (`partials/` for 'partials/x.twig').
+ * Undefined when no template shows where the roots are.
+ */
+export function newTemplatePath(relPath: string, templates: TwigTemplate[]): string | undefined {
+  const rel = toPosix(relPath).replace(/^\.?\//, '');
+  const firstDir = rel.includes('/') ? rel.split('/')[0] : undefined;
+  const scores = new Map<string, number>();
+  for (const t of templates) {
+    const posix = toPosix(t.fsPath);
+    for (const r of t.relPaths) {
+      if (!posix.endsWith('/' + r)) {
+        continue;
+      }
+      const base = posix.slice(0, -r.length);
+      const score = (firstDir && r.startsWith(firstDir + '/') ? 10 : 0) + (r === t.includePath ? 1 : 0);
+      scores.set(base, (scores.get(base) ?? 0) + score);
+    }
+  }
+  let best: string | undefined;
+  let bestScore = -1;
+  for (const [base, score] of scores) {
+    if (score > bestScore) {
+      best = base;
+      bestScore = score;
+    }
+  }
+  return best === undefined ? undefined : best + rel;
+}

@@ -28,7 +28,12 @@ export function parseAcfJson(raw: string, file?: string): AcfFieldGroup[] {
     const fields = obj.fields
       .map((f) => normalizeField(f, title, undefined, file))
       .filter((f): f is AcfField => f !== undefined);
-    groups.push({ title, fields, isOptions: isOptionsGroup(obj.location) });
+    groups.push({
+      title,
+      key: typeof obj.key === 'string' ? obj.key : undefined,
+      fields,
+      isOptions: isOptionsGroup(obj.location),
+    });
   }
 
   return groups;
@@ -72,6 +77,11 @@ function normalizeField(
   }
   if (typeof obj.field_type === 'string') {
     field.fieldType = obj.field_type;
+  }
+  if (type === 'clone' && Array.isArray(obj.clone)) {
+    field.clone = obj.clone.filter((k): k is string => typeof k === 'string');
+    field.cloneDisplay = obj.display === 'group' ? 'group' : 'seamless';
+    field.prefixName = obj.prefix_name === 1 || obj.prefix_name === '1' || obj.prefix_name === true;
   }
 
   // group / repeater sub fields

@@ -24,6 +24,12 @@ Parses ACF Local JSON and supports both access styles:
 - `post.meta('field_name')` — suggests all known ACF field names
 - direct property access — `post.services.heading`, `post.services.link.url`
 
+**Clone fields** resolve to the fields they clone, from field groups or single
+fields anywhere in your ACF JSON. Seamless clones put the cloned fields beside
+the clone (prefixed with its name when *Prefix field names* is on); group
+clones are an object of them under the clone's name. Clones inside flexible
+content layouts reach block templates too.
+
 Field shapes are inferred per type: `text/textarea/wysiwyg` → string,
 `link` → `{ url, title, target }`, `image` → object, `group` → object,
 `repeater` → array of rows, `flexible_content` → array of layout rows that
@@ -89,6 +95,15 @@ comes from (the PHP that sets it, the include that passes it, or the
 - Fades fields in the `acf-fields` structure the template never outputs.
 - Dynamic includes using `~` concatenation are never flagged.
 
+**Quick fixes** (Cmd/Ctrl-.) on these diagnostics:
+
+- *Change to 'title'* for a mistyped field (`block.titel`), `post.meta('...')`
+  name or include path.
+- *Create views/partials/x.twig* for an include that does not exist yet, under
+  the Twig root the project's includes are written against.
+- *Remove 'key'* for a `with { … }` entry the included template never uses.
+- *Pass 'link', 'title' to x.twig* for variables an `only` include leaves out.
+
 ### 9. Template Context panel
 The **Timber Context** view in the Explorer follows the active Twig template
 and shows everything Timber Lens knows about it — so a missing or surprising
@@ -151,6 +166,21 @@ they are applied.
 
 `{% block %}` names complete from the parent template of `{% extends %}`.
 
+### 12. Moving and renaming templates
+Move or rename a `.twig` file, or a folder of them, in the VS Code explorer and
+every path pointing at it is updated as part of the move:
+
+- `include` / `extends` / `embed` / `import` / `from` / `source()` paths in Twig;
+- template paths in PHP, e.g. `Timber::render('views/page-home.twig', $context)`;
+- the folder part of dynamic paths when a folder is renamed:
+  `include('blocks/' ~ block.acf_fc_layout ~ '.twig')`.
+
+Each path keeps its style: it stays relative to the same Twig root when the
+template is still under it, otherwise it becomes the template's usual include
+path. Undo reverts the move and the edits together. If a template is moved out
+of every Twig root, the paths that pointed at it are listed in a warning
+instead. Turn this off with `timberLens.updateReferencesOnMove`.
+
 ### Nice-to-haves
 - Fallback built-in Timber globals: `post`, `site`, `user`, `menu`.
 
@@ -163,6 +193,7 @@ they are applied.
 | `timberLens.phpScanGlobs` | `["**/*.php"]` |
 | `timberLens.enableBuiltinGlobals` | `true` |
 | `timberLens.assumePostVariables` | `true` |
+| `timberLens.updateReferencesOnMove` | `true` |
 
 ## Development
 

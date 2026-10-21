@@ -86,10 +86,12 @@ export interface MemberProblem {
   offset: number;
   length: number;
   message: string;
+  /** The field probably meant, for a quick fix. */
+  suggestion?: string;
 }
 
 /** ACF values whose keys listed here are only a sample of what WordPress returns. */
-const SAMPLED_TYPES = new Set(['post_object', 'relationship', 'user', 'taxonomy', 'page_link', 'clone', 'unknown']);
+const SAMPLED_TYPES = new Set(['post_object', 'relationship', 'user', 'taxonomy', 'page_link', 'unknown']);
 
 /** Shapes from ACF whose keys are fully known, so a missing key is a mistake. */
 function hasExactKeys(shape: TypeShape): boolean {
@@ -140,6 +142,7 @@ export function checkMemberAccess(
           offset,
           length: name.length,
           message: `'${chain}' has no field '${name}'.${near ? ` Did you mean '${near}'?` : ''}`,
+          suggestion: near,
         });
         break;
       }
@@ -150,7 +153,7 @@ export function checkMemberAccess(
 }
 
 /** The candidate within edit distance 2 of `name`, if any. */
-function closest(name: string, candidates: string[]): string | undefined {
+export function closest(name: string, candidates: string[]): string | undefined {
   let best: string | undefined;
   let bestDist = 3;
   for (const c of candidates) {

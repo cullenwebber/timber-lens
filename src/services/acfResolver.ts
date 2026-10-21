@@ -25,6 +25,7 @@ export class AcfIndex {
   readonly optionsFields: AcfField[] = [];
 
   constructor(groups: AcfFieldGroup[]) {
+    linkClones(groups);
     for (const group of groups) {
       for (const field of group.fields) {
         this.topLevelFields.push(field);
@@ -39,7 +40,7 @@ export class AcfIndex {
   /** What get_fields('options') returns: every options page field by name. */
   optionsShape(): TypeShape {
     const keys = new Map<string, TypeShape>();
-    for (const f of this.optionsFields) {
+    for (const f of valueFields(this.optionsFields)) {
       if (!NO_VALUE_TYPES.has(f.type)) {
         keys.set(f.name, acfFieldToShape(f));
       }
@@ -47,18 +48,22 @@ export class AcfIndex {
     return objectShape(keys, { acfType: 'options', label: 'ACF options' });
   }
 
-  private register(field: AcfField): void {
+  /** `viaClone`: a copy inside a clone field, so its layouts are not listed again. */
+  private register(field: AcfField, viaClone = false): void {
     if (!this.byName.has(field.name)) {
       this.byName.set(field.name, field);
     }
     this.allNames.add(field.name);
-    field.subFields?.forEach((sf) => this.register(sf));
+    field.subFields?.forEach((sf) => this.register(sf, viaClone));
+    field.cloned?.forEach((cf) => this.register(cf, true));
     field.layouts?.forEach((l) => {
-      this.flexibleLayouts.push({ field, layout: l });
+      if (!viaClone) {
+        this.flexibleLayouts.push({ field, layout: l });
+      }
       if (!this.layoutSubFields.has(l.name)) {
         this.layoutSubFields.set(l.name, l.subFields);
       }
-      l.subFields.forEach((sf) => this.register(sf));
+      l.subFields.forEach((sf) => this.register(sf, viaClone));
     });
   }
 
@@ -96,7 +101,7 @@ export class AcfIndex {
 export function layoutRowShape(name: string, subFields: AcfField[]): TypeShape {
   const keys = new Map<string, TypeShape>();
   keys.set('acf_fc_layout', stringShape({ label: 'Layout name' }));
-  for (const sf of subFields) {
+  for (const sf of valueFields(subFields)) {
     if (!NO_VALUE_TYPES.has(sf.type)) {
       keys.set(sf.name, acfFieldToShape(sf));
     }
@@ -242,6 +247,10 @@ export function acfFieldToShape(field: AcfField): TypeShape {
     case 'flexible_content':
       return arrayShape(flexibleRowShape(field), meta);
 
+    case 'clone':
+      // Either display returns the cloned values as one array under the clone's name.
+      return field.cloned ? objectShape(fieldKeys(field.cloned), meta) : unknownShape(meta);
+
     default:
       return unknownShape(meta);
   }
@@ -249,8 +258,12 @@ export function acfFieldToShape(field: AcfField): TypeShape {
 
 /** Build a property map from a field's sub fields. */
 function subFieldKeys(field: AcfField): Map<string, TypeShape> {
+  return fieldKeys(field.subFields ?? []);
+}
+
+function fieldKeys(fields: AcfField[]): Map<string, TypeShape> {
   const keys = new Map<string, TypeShape>();
-  for (const sf of field.subFields ?? []) {
+  for (const sf of valueFields(fields)) {
     if (!NO_VALUE_TYPES.has(sf.type)) {
       keys.set(sf.name, acfFieldToShape(sf));
     }
@@ -266,11 +279,71 @@ function flexibleRowShape(field: AcfField): TypeShape {
   const keys = new Map<string, TypeShape>();
   keys.set('acf_fc_layout', stringShape({ label: 'Layout name' }));
   for (const layout of field.layouts ?? []) {
-    for (const sf of layout.subFields) {
+    for (const sf of valueFields(layout.subFields)) {
       if (!keys.has(sf.name) && !NO_VALUE_TYPES.has(sf.type)) {
         keys.set(sf.name, acfFieldToShape(sf));
       }
     }
   }
   return objectShape(keys, { acfType: 'flexible_content_row' });
+}
+
+/**
+ * Fields as their values are stored: a seamless clone is replaced by the
+ * fields it clones, which sit beside it. A group clone stays one field.
+ */
+export function valueFields(fields: AcfField[]): AcfField[] {
+  return fields.flatMap((f) =>
+    f.type === 'clone' && f.cloned && f.cloneDisplay !== 'group' ? valueFields(f.cloned) : [f]
+  );
+}
+
+/**
+ * Point every clone field at copies of the fields and field groups it clones
+ * (`cloned`). Copies are expanded the same way, stopping at a clone already
+ * being expanded, so the result has no cycles. Clones of keys outside the
+ * workspace stay unlinked.
+ */
+function linkClones(groups: AcfFieldGroup[]): void {
+  const byKey = new Map<string, AcfField>();
+  const groupFields = new Map<string, AcfField[]>();
+  const clones: AcfField[] = [];
+  const collect = (f: AcfField) => {
+    if (f.key && !byKey.has(f.key)) {
+      byKey.set(f.key, f);
+    }
+    if (f.type === 'clone' && f.clone) {
+      clones.push(f);
+    }
+    f.subFields?.forEach(collect);
+    f.layouts?.forEach((l) => l.subFields.forEach(collect));
+  };
+  for (const group of groups) {
+    if (group.key && !groupFields.has(group.key)) {
+      groupFields.set(group.key, group.fields);
+    }
+    group.fields.forEach(collect);
+  }
+
+  const targets = (clone: AcfField, seen: Set<AcfField>): AcfField[] | undefined => {
+    const found = (clone.clone ?? []).flatMap((k) => groupFields.get(k) ?? (byKey.has(k) ? [byKey.get(k)!] : []));
+    if (found.length === 0) {
+      return undefined;
+    }
+    const inner = new Set(seen).add(clone);
+    return found.map((t) => {
+      const copy = copyLinked(t, inner);
+      return clone.prefixName && clone.cloneDisplay !== 'group' ? { ...copy, name: `${clone.name}_${copy.name}` } : copy;
+    });
+  };
+  const copyLinked = (f: AcfField, seen: Set<AcfField>): AcfField => ({
+    ...f,
+    subFields: f.subFields?.map((sf) => copyLinked(sf, seen)),
+    layouts: f.layouts?.map((l) => ({ ...l, subFields: l.subFields.map((sf) => copyLinked(sf, seen)) })),
+    cloned: f.type === 'clone' && !seen.has(f) ? targets(f, seen) : undefined,
+  });
+
+  for (const clone of clones) {
+    clone.cloned = targets(clone, new Set());
+  }
 }

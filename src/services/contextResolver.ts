@@ -1,5 +1,5 @@
 import { TypeShape, objectShape, stringShape, unknownShape } from '../models/context';
-import { AcfIndex } from './acfResolver';
+import { AcfIndex, valueFields } from './acfResolver';
 import {
   ChainSegment,
   LoopScope,
@@ -152,7 +152,7 @@ export function buildPostShape(acf: AcfIndex): TypeShape {
   }
 
   // ACF top-level fields take precedence / add to the post shape.
-  for (const field of acf.topLevelFields) {
+  for (const field of valueFields(acf.topLevelFields)) {
     keys.set(field.name, acf.shapeByName(field.name) ?? unknownShape());
   }
 

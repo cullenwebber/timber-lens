@@ -1,5 +1,6 @@
 import { AcfField, AcfLayout } from '../models/acf';
 import { formatStructure } from './fieldStructure';
+import { valueFields } from './acfResolver';
 
 const STRING_TYPES = new Set([
   'text',
@@ -35,7 +36,7 @@ export function scaffoldBlockTemplate(
     if (layout.subFields.length === 0) {
       w.line('{# This layout has no sub fields yet. #}');
     }
-    for (const field of layout.subFields) {
+    for (const field of valueFields(layout.subFields)) {
       renderField(w, field, member(varName, field.name), new Set([varName]));
     }
   });

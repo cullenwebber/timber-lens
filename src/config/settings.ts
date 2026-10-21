@@ -6,6 +6,7 @@ export interface TimberLensSettings {
   phpScanGlobs: string[];
   enableBuiltinGlobals: boolean;
   assumePostVariables: boolean;
+  updateReferencesOnMove: boolean;
 }
 
 const DEFAULTS: TimberLensSettings = {
@@ -14,6 +15,7 @@ const DEFAULTS: TimberLensSettings = {
   phpScanGlobs: ['**/*.php'],
   enableBuiltinGlobals: true,
   assumePostVariables: true,
+  updateReferencesOnMove: true,
 };
 
 export function getSettings(): TimberLensSettings {
@@ -29,6 +31,10 @@ export function getSettings(): TimberLensSettings {
     assumePostVariables: cfg.get<boolean>(
       'assumePostVariables',
       DEFAULTS.assumePostVariables
+    ),
+    updateReferencesOnMove: cfg.get<boolean>(
+      'updateReferencesOnMove',
+      DEFAULTS.updateReferencesOnMove
     ),
   };
 }

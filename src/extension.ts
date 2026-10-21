@@ -4,6 +4,8 @@ import { TwigCompletionProvider } from './providers/twigCompletionProvider';
 import { TwigHoverProvider } from './providers/twigHoverProvider';
 import { TwigDiagnosticsProvider } from './providers/twigDiagnosticsProvider';
 import { TwigDefinitionProvider } from './providers/twigDefinitionProvider';
+import { TwigCodeActionProvider } from './providers/twigCodeActionProvider';
+import { TemplateMoveParticipant } from './providers/templateMoveParticipant';
 import { TemplateContextView } from './views/templateContextView';
 import { createBlockTemplate } from './commands/createBlockTemplate';
 import { FieldStructureProvider } from './providers/fieldStructureProvider';
@@ -52,6 +54,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const diagnostics = new TwigDiagnosticsProvider(index);
   diagnostics.register(context);
 
+  // Quick fixes for those diagnostics.
+  context.subscriptions.push(
+    vscode.languages.registerCodeActionsProvider(
+      TWIG_SELECTOR,
+      new TwigCodeActionProvider(diagnostics),
+      TwigCodeActionProvider.metadata
+    )
+  );
+
   // Explorer view showing the active template's context.
   new TemplateContextView(index).register(context);
 
@@ -70,6 +81,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       '"'
     )
   );
+
+  // Rewrite include and render paths when templates are moved or renamed.
+  new TemplateMoveParticipant(index).register(context);
 
   // Scaffold a block template from a flexible content layout.
   context.subscriptions.push(

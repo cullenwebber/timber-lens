@@ -248,6 +248,10 @@ export class FieldStructureProvider implements vscode.CodeLensProvider {
       }
     }
 
+    if (JSON.stringify(hit.data) === JSON.stringify(JSON.parse(hit.text))) {
+      void vscode.window.showInformationMessage(`Timber Lens: ${rel} already matches the field structure.`);
+      return;
+    }
     await vscode.workspace.fs.writeFile(hit.uri, Buffer.from(stringifyAcfJson(hit.data, hit.text), 'utf8'));
     await this.index.rebuild();
 

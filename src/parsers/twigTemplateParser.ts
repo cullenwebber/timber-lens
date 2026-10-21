@@ -19,6 +19,9 @@ export interface IncludeEntry {
   keyStart: number;
   /** The value expression, trimmed. */
   value: string;
+  /** Offsets of the whole entry, between the separating commas. */
+  start: number;
+  end: number;
 }
 
 export interface IncludeTag {
@@ -30,6 +33,10 @@ export interface IncludeTag {
   entries: IncludeEntry[];
   /** `only`: the template sees nothing but the hash. */
   only: boolean;
+  /** `include('x.twig')` rather than `{% include 'x.twig' %}`. */
+  isFunc: boolean;
+  /** Offset of the hash's closing `}`, when there is a literal hash. */
+  hashClose?: number;
 }
 
 export interface BlockTag {
@@ -212,20 +219,46 @@ export function parseIncludes(text: string): IncludeTag[] {
     const rest = blanked.slice(i);
     const lead = isFunc ? /^\s*,\s*\{/.exec(rest) : /^\s*with\s*\{/.exec(rest);
     let entries: IncludeEntry[] = [];
+    let hashClose: number | undefined;
     if (lead) {
       const open = i + lead[0].length - 1;
       const close = matchBrace(blanked, open);
       entries = hashEntries(text, blanked, open + 1, close === -1 ? text.length : close);
+      hashClose = close === -1 ? undefined : close;
       i = close === -1 ? text.length : close + 1;
     }
     const end = isFunc ? blanked.indexOf(')', i) : blanked.indexOf('%}', i);
     const tail = blanked.slice(i, end === -1 ? undefined : end);
-    tags.push({ path, pathStart, pathEnd, entries, only: /\bonly\b/.test(tail) });
+    tags.push({ path, pathStart, pathEnd, entries, only: /\bonly\b/.test(tail), isFunc, hashClose });
   }
   return tags;
 }
 
 /** Index of the `}` matching the `{` at `open` in string-blanked text, or -1. */
+/** Offsets to delete to drop entry `i` of an include hash, with one comma beside it. */
+export function entryRemovalRange(text: string, tag: IncludeTag, i: number): [number, number] {
+  const entry = tag.entries[i];
+  const trimmedEnd = entry.start + text.slice(entry.start, entry.end).trimEnd().length;
+  if (i < tag.entries.length - 1) {
+    return [entry.start, entry.end + 1];
+  }
+  return i > 0 ? [tag.entries[i - 1].end, trimmedEnd] : [entry.start, trimmedEnd];
+}
+
+/** The insertion that passes `names` to an include under their own names. */
+export function passThroughInsert(text: string, tag: IncludeTag, names: string[]): { at: number; text: string } {
+  const pairs = names.map((n) => `${n}: ${n}`).join(', ');
+  const last = tag.entries[tag.entries.length - 1];
+  if (last) {
+    return { at: last.start + text.slice(last.start, last.end).trimEnd().length, text: `, ${pairs}` };
+  }
+  if (tag.hashClose !== undefined) {
+    return { at: tag.hashClose, text: ` ${pairs} ` };
+  }
+  // Right after the path's closing quote.
+  return { at: tag.pathEnd + 1, text: tag.isFunc ? `, { ${pairs} }` : ` with { ${pairs} }` };
+}
+
 function matchBrace(blanked: string, open: number): number {
   let depth = 0;
   for (let i = open; i < blanked.length; i++) {
@@ -254,7 +287,13 @@ function hashEntries(text: string, blanked: string, start: number, end: number):
     const key = /^\s*(['"]?)([\w-]+)\1\s*:/.exec(part);
     if (key) {
       const keyStart = partStart + part.indexOf(key[2]);
-      entries.push({ key: key[2], keyStart, value: text.slice(partStart + key[0].length, partEnd).trim() });
+      entries.push({
+        key: key[2],
+        keyStart,
+        value: text.slice(partStart + key[0].length, partEnd).trim(),
+        start: partStart,
+        end: partEnd,
+      });
     }
     partStart = partEnd + 1;
   };

@@ -25,6 +25,14 @@ export interface AcfField {
   subFields?: AcfField[];
   /** Layouts for flexible_content fields. */
   layouts?: AcfLayout[];
+  /** Clone fields: the field and field group keys they clone. */
+  clone?: string[];
+  /** Clone fields: `seamless` (fields sit beside the clone) or `group` (a group under its name). */
+  cloneDisplay?: string;
+  /** Clone fields: the cloned fields' names are prefixed with the clone's name. */
+  prefixName?: boolean;
+  /** Clone fields: the fields cloned, prefixed when prefixName; linked by AcfIndex. */
+  cloned?: AcfField[];
 }
 
 export interface AcfLayout {
@@ -35,6 +43,8 @@ export interface AcfLayout {
 
 export interface AcfFieldGroup {
   title: string;
+  /** Field group key, e.g. "group_abc123", which clone fields refer to. */
+  key?: string;
   /** Shown on an ACF options page, so read with get_field(..., 'option'). */
   isOptions?: boolean;
   fields: AcfField[];

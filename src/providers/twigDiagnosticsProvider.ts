@@ -2,8 +2,15 @@ import * as vscode from 'vscode';
 import { ProjectIndex } from '../services/projectIndex';
 import { rangeFromOffsets } from '../utils/ranges';
 import { findEnclosingLoops } from '../parsers/twigContextParser';
-import { parseIncludes, templateVariables } from '../parsers/twigTemplateParser';
-import { checkMemberAccess } from '../services/twigChecks';
+import {
+  IncludeTag,
+  entryRemovalRange,
+  parseIncludes,
+  passThroughInsert,
+  templateVariables,
+} from '../parsers/twigTemplateParser';
+import { checkMemberAccess, closest } from '../services/twigChecks';
+import { newTemplatePath } from '../services/templateResolver';
 import { TypeShape } from '../models/context';
 
 // Matches a whole include/extends/embed/import/from tag.
@@ -15,9 +22,19 @@ const FUNC_RE = /\binclude\(\s*(['"])([^'"]+)\1\s*(?:,|\))/g;
 // post.meta('field') usage.
 const META_RE = /\bpost\s*\.\s*meta\(\s*(['"])([^'"]+)\1\s*\)/g;
 
+/** A quick fix for one diagnostic, served by TwigCodeActionProvider. */
+export interface TwigFix {
+  title: string;
+  edit: vscode.WorkspaceEdit;
+  command?: vscode.Command;
+  preferred?: boolean;
+}
+
 export class TwigDiagnosticsProvider {
   private readonly collection: vscode.DiagnosticCollection;
   private readonly disposables: vscode.Disposable[] = [];
+  /** Quick fixes per document, by diagnostic (see fixKey). */
+  private readonly fixes = new Map<string, Map<string, TwigFix[]>>();
 
   constructor(private readonly index: ProjectIndex) {
     this.collection = vscode.languages.createDiagnosticCollection('timberLens');
@@ -29,7 +46,10 @@ export class TwigDiagnosticsProvider {
       vscode.workspace.onDidOpenTextDocument((d) => this.refresh(d)),
       vscode.workspace.onDidChangeTextDocument((e) => this.refresh(e.document)),
       vscode.workspace.onDidSaveTextDocument((d) => this.refresh(d)),
-      vscode.workspace.onDidCloseTextDocument((d) => this.collection.delete(d.uri)),
+      vscode.workspace.onDidCloseTextDocument((d) => {
+        this.collection.delete(d.uri);
+        this.fixes.delete(d.uri.toString());
+      }),
       this.index.onDidChange(() => this.refreshAll())
     );
     context.subscriptions.push(...this.disposables);
@@ -42,12 +62,18 @@ export class TwigDiagnosticsProvider {
     }
   }
 
+  /** The quick fixes computed for a diagnostic this provider reported. */
+  fixesFor(uri: vscode.Uri, diag: vscode.Diagnostic): TwigFix[] {
+    return this.fixes.get(uri.toString())?.get(fixKey(diag)) ?? [];
+  }
+
   refresh(document: vscode.TextDocument): void {
     if (!isTwig(document)) {
       return;
     }
     const text = document.getText();
     const diagnostics: vscode.Diagnostic[] = [];
+    this.fixes.set(document.uri.toString(), new Map());
 
     this.checkIncludes(document, text, diagnostics);
     this.checkMeta(document, text, diagnostics);
@@ -108,13 +134,32 @@ export class TwigDiagnosticsProvider {
       return;
     }
     const range = rangeFromOffsets(document, stringStart, stringStart + path.length);
+    const near = closest(path, this.index.twigTemplates.flatMap((t) => t.relPaths));
     const diag = new vscode.Diagnostic(
       range,
-      `Timber Lens: Twig template '${path}' was not found in the configured Twig roots.`,
+      `Timber Lens: Twig template '${path}' was not found in the configured Twig roots.` +
+        (near ? ` Did you mean '${near}'?` : ''),
       vscode.DiagnosticSeverity.Warning
     );
     diag.source = 'Timber Lens';
     diagnostics.push(diag);
+
+    const fixes: TwigFix[] = [];
+    if (near) {
+      fixes.push(replaceFix(document, range, near));
+    }
+    const target = newTemplatePath(path, this.index.twigTemplates);
+    if (target) {
+      const uri = vscode.Uri.file(target);
+      const edit = new vscode.WorkspaceEdit();
+      edit.createFile(uri, { ignoreIfExists: true });
+      fixes.push({
+        title: `Create ${vscode.workspace.asRelativePath(uri)}`,
+        edit,
+        command: { title: 'Open', command: 'vscode.open', arguments: [uri] },
+      });
+    }
+    this.addFixes(document, diag, fixes);
   }
 
   // ---- C. Fields ACF data does not have -------------------------------------
@@ -140,6 +185,9 @@ export class TwigDiagnosticsProvider {
       );
       diag.source = 'Timber Lens';
       diagnostics.push(diag);
+      if (p.suggestion) {
+        this.addFixes(document, diag, [replaceFix(document, diag.range, p.suggestion)]);
+      }
     }
   }
 
@@ -165,6 +213,7 @@ export class TwigDiagnosticsProvider {
         diag.tags = [vscode.DiagnosticTag.Unnecessary];
         diag.source = 'Timber Lens';
         diagnostics.push(diag);
+        this.addFixes(document, diag, [removeEntryFix(document, text, tag, tag.entries.indexOf(entry))]);
       }
       // With `only`, anything not in the hash is undefined in the template.
       if (tag.only) {
@@ -178,6 +227,7 @@ export class TwigDiagnosticsProvider {
           );
           diag.source = 'Timber Lens';
           diagnostics.push(diag);
+          this.addFixes(document, diag, [passThroughFix(document, text, tag, missing.map((v) => v.name))]);
         }
       }
     }
@@ -227,15 +277,52 @@ export class TwigDiagnosticsProvider {
       }
       const fieldStart = m.index + m[0].indexOf(field, m[0].indexOf('meta'));
       const range = rangeFromOffsets(document, fieldStart, fieldStart + field.length);
+      const near = closest(field, [...this.index.acfIndex.allNames]);
       const diag = new vscode.Diagnostic(
         range,
-        `Timber Lens: ACF field '${field}' was not found in any parsed ACF JSON.`,
+        `Timber Lens: ACF field '${field}' was not found in any parsed ACF JSON.` +
+          (near ? ` Did you mean '${near}'?` : ''),
         vscode.DiagnosticSeverity.Warning
       );
       diag.source = 'Timber Lens';
       diagnostics.push(diag);
+      if (near) {
+        this.addFixes(document, diag, [replaceFix(document, range, near)]);
+      }
     }
   }
+
+  private addFixes(document: vscode.TextDocument, diag: vscode.Diagnostic, fixes: TwigFix[]): void {
+    if (fixes.length > 0) {
+      this.fixes.get(document.uri.toString())?.set(fixKey(diag), fixes);
+    }
+  }
+}
+
+/** Code actions get copies of diagnostics, so fixes are found by range and message. */
+function fixKey(diag: vscode.Diagnostic): string {
+  const { start, end } = diag.range;
+  return `${start.line}:${start.character}:${end.line}:${end.character}:${diag.message}`;
+}
+
+function replaceFix(document: vscode.TextDocument, range: vscode.Range, newText: string): TwigFix {
+  const edit = new vscode.WorkspaceEdit();
+  edit.replace(document.uri, range, newText);
+  return { title: `Change to '${newText}'`, edit, preferred: true };
+}
+
+function removeEntryFix(document: vscode.TextDocument, text: string, tag: IncludeTag, i: number): TwigFix {
+  const [start, end] = entryRemovalRange(text, tag, i);
+  const edit = new vscode.WorkspaceEdit();
+  edit.delete(document.uri, rangeFromOffsets(document, start, end));
+  return { title: `Remove '${tag.entries[i].key}'`, edit, preferred: true };
+}
+
+function passThroughFix(document: vscode.TextDocument, text: string, tag: IncludeTag, names: string[]): TwigFix {
+  const insert = passThroughInsert(text, tag, names);
+  const edit = new vscode.WorkspaceEdit();
+  edit.insert(document.uri, document.positionAt(insert.at), insert.text);
+  return { title: `Pass ${names.map((n) => `'${n}'`).join(', ')} to ${tag.path}`, edit };
 }
 
 function isTwig(document: vscode.TextDocument): boolean {
