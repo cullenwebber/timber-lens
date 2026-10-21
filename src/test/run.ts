@@ -17,12 +17,33 @@ import {
 import { scaffoldBlockTemplate } from '../services/blockScaffold';
 import {
   applyStructure,
+  fieldPathAtLine,
   findLayout,
   formatStructure,
   matchesLayout,
   parseStructure,
   stringifyAcfJson,
+  structToAcfFields,
+  structToAcfFieldsWithSettings,
 } from '../services/fieldStructure';
+import { acfFieldToShape, layoutRowShape } from '../services/acfResolver';
+import {
+  rankTypes,
+  structureCursorAt,
+  suggestFields,
+  suggestLabels,
+} from '../services/fieldStructureCompletion';
+import {
+  blockNameAt,
+  blockTags,
+  extendsPath,
+  includeHashAt,
+  parseIncludes,
+  templateVariables,
+} from '../parsers/twigTemplateParser';
+import { parseGlobalContext, parseTwigExtensions } from '../parsers/phpTwigExtensions';
+import { phpValueToShape } from '../indexers/phpContextIndexer';
+import { checkMemberAccess, shapeOfExpr, unusedStructureFields } from '../services/twigChecks';
 import { AcfLayout } from '../models/acf';
 import { TypeShape } from '../models/context';
 
@@ -462,6 +483,27 @@ test('structure parses header, fields, labels and nesting', () => {
   );
   assert.strictEqual(STRUCT_DOC.slice(block!.end), '\n<div>{{ block.tagline }}</div>');
 });
+test('the field on a structure line is found with its parents', () => {
+  const block = parseStructure(STRUCT_DOC).block!;
+  assert.deepStrictEqual(fieldPathAtLine(block, 4)!.map((f) => f.name), ['items', 'title']);
+  assert.deepStrictEqual(fieldPathAtLine(block, 1)!.map((f) => f.name), ['tagline']);
+  assert.strictEqual(fieldPathAtLine(block, 0), undefined);
+});
+test('unapplied structure fields resolve as the block row', () => {
+  const block = parseStructure(STRUCT_DOC + '\n').block!;
+  const resolver = new ContextResolver({
+    contextVars: new Map([['block', layoutRowShape(block.layoutName, structToAcfFields(block.fields))]]),
+    acf,
+    enableGlobals: true,
+    assumePostVariables: true,
+  });
+  // image is only in the structure, not in the fixture's ACF layout.
+  const image = resolver.resolveExpr('block.image', new Map());
+  assert.strictEqual(image?.acfType, 'image');
+  assert.ok(image?.keys?.has('url'));
+  const item = resolver.resolveExpr('block.items', new Map());
+  assert.ok(item?.item?.keys?.has('title'));
+});
 test('structure reports unknown types, bad nesting and duplicates by line', () => {
   const { errors } = parseStructure(
     ['{# acf-fields: pb / x', '  a: txt', '  b: text', '    c: text', '  b: image', 'end-acf-fields #}'].join('\n')
@@ -512,6 +554,329 @@ test('applying a new layout name creates the layout', () => {
 test('ACF JSON round-trips with the original indentation', () => {
   const original = JSON.stringify(JSON.parse(ACF_JSON), null, 4) + '\n';
   assert.strictEqual(stringifyAcfJson(JSON.parse(original), original), original);
+});
+
+console.log('\nField structure completion');
+const BUILDER_ACF = buildAcfIndex([
+  JSON.stringify({
+    title: 'Page Builder',
+    fields: [
+      {
+        name: 'page_builder',
+        type: 'flexible_content',
+        layouts: {
+          a: {
+            name: 'cards',
+            label: 'Cards',
+            sub_fields: [
+              { name: 'heading', type: 'text', label: 'Heading' },
+              { name: 'content', type: 'wysiwyg', label: 'Content' },
+              {
+                name: 'cards',
+                type: 'repeater',
+                sub_fields: [
+                  { name: 'title', type: 'text' },
+                  { name: 'image', type: 'image' },
+                ],
+              },
+            ],
+          },
+          b: {
+            name: 'banner',
+            sub_fields: [
+              { name: 'heading', type: 'text', label: 'Banner heading' },
+              { name: 'button', type: 'link' },
+              { name: 'image', type: 'image' },
+            ],
+          },
+          c: {
+            name: 'faqs',
+            sub_fields: [
+              { name: 'heading', type: 'text', label: 'Heading' },
+              { name: 'content', type: 'wysiwyg' },
+              { name: 'background', type: 'select' },
+            ],
+          },
+        },
+      },
+    ],
+  }),
+]);
+/** Cursor at the `|` in the document. */
+function cursorIn(doc: string) {
+  return structureCursorAt(doc.replace('|', ''), doc.indexOf('|'));
+}
+test('structure cursor: header owner and layout', () => {
+  assert.deepStrictEqual(cursorIn('{# acf-fields: page_b|'), { kind: 'owner', prefix: 'page_b' });
+  assert.deepStrictEqual(cursorIn('{# acf-fields: page_builder / ca|'), {
+    kind: 'layout',
+    owner: 'page_builder',
+    prefix: 'ca',
+  });
+});
+test('structure cursor: field name with parent and siblings', () => {
+  const doc = [
+    '{# acf-fields: page_builder / cards "Cards"',
+    '  heading: text',
+    '  cards: repeater',
+    '    title: text',
+    '    im|',
+    '  content: wysiwyg',
+    'end-acf-fields #}',
+  ].join('\n');
+  assert.deepStrictEqual(cursorIn(doc), {
+    kind: 'name',
+    prefix: 'im',
+    wholeLine: true,
+    level: { parent: { name: 'cards', type: 'repeater' }, siblings: ['title'], layoutName: 'cards' },
+  });
+  const top = doc.replace('    im|', '    image: image').replace('  content: wysiwyg', '  |');
+  assert.deepStrictEqual(cursorIn(top), {
+    kind: 'name',
+    prefix: '',
+    wholeLine: true,
+    level: { parent: undefined, siblings: ['heading', 'cards'], layoutName: 'cards' },
+  });
+});
+test('structure cursor: type and label positions', () => {
+  const head = '{# acf-fields: pb / x\n';
+  assert.deepStrictEqual(cursorIn(`${head}  heading:|\nend-acf-fields #}`), {
+    kind: 'type', prefix: '', fieldName: 'heading', needsSpace: true, hasLabel: false,
+  });
+  assert.deepStrictEqual(cursorIn(`${head}  heading: te| "Heading"`), {
+    kind: 'type', prefix: 'te', fieldName: 'heading', needsSpace: false, hasLabel: true,
+  });
+  assert.deepStrictEqual(cursorIn(`${head}  heading: text "He|"`), {
+    kind: 'label', prefix: '"He', fieldName: 'heading', closingQuote: true,
+  });
+});
+test('structure cursor: nothing outside the structure', () => {
+  assert.strictEqual(cursorIn('<div>|</div>'), undefined);
+  assert.strictEqual(cursorIn('{# acf-fields: pb / x\n  a: text\nend-acf-fields #}\n<div>|'), undefined);
+});
+test('field suggestions rank the same layout, then co-occurring, then common fields', () => {
+  const names = suggestFields(BUILDER_ACF, { layoutName: 'cards', siblings: ['heading'] }).map(
+    (s) => `${s.field.name}:${s.field.type}`
+  );
+  assert.deepStrictEqual(names.slice(0, 2), ['content:wysiwyg', 'cards:repeater']);
+  assert.ok(!names.includes('heading:text'), 'siblings are not suggested again');
+  // content sits next to heading in two layouts; button and image only once.
+  const fresh = suggestFields(BUILDER_ACF, { layoutName: 'new_thing', siblings: ['heading'] });
+  assert.strictEqual(fresh[0].field.name, 'content');
+});
+test('field suggestions inside a repeater use that repeater\'s fields with children', () => {
+  const inCards = suggestFields(BUILDER_ACF, { parent: { name: 'cards', type: 'repeater' }, siblings: [] });
+  assert.deepStrictEqual(inCards.slice(0, 2).map((s) => s.field.name), ['title', 'image']);
+  const repeater = suggestFields(BUILDER_ACF, { layoutName: 'x', siblings: [] }).find((s) => s.field.name === 'cards');
+  assert.deepStrictEqual(repeater!.field.subFields!.map((f) => f.name), ['title', 'image']);
+});
+test('types rank what the name is used as; labels start from the name', () => {
+  assert.strictEqual(rankTypes(BUILDER_ACF, 'image')[0].type, 'image');
+  assert.strictEqual(rankTypes(BUILDER_ACF, 'image').length, 36);
+  assert.deepStrictEqual(suggestLabels(BUILDER_ACF, 'heading'), ['Heading', 'Banner heading']);
+});
+
+console.log('\nACF value shapes');
+/** A compact description of a shape, e.g. "array<object:url,alt>". */
+function brief(shape: TypeShape | undefined): string {
+  if (!shape) return 'none';
+  if (shape.kind === 'array') return `array<${brief(shape.item)}>`;
+  if (shape.kind === 'object') return `object:${[...(shape.keys?.keys() ?? [])].slice(0, 3).join(',')}`;
+  return shape.kind;
+}
+const shapeOf = (field: object) => {
+  const [group] = buildAcfIndex([JSON.stringify({ title: 'G', fields: [{ name: 'f', ...field }] })]).topLevelFields;
+  return brief(acfFieldToShape(group));
+};
+test('image, file and gallery follow their return format', () => {
+  assert.strictEqual(shapeOf({ type: 'image' }), 'object:ID,id,title');
+  assert.strictEqual(shapeOf({ type: 'image', return_format: 'url' }), 'string');
+  assert.strictEqual(shapeOf({ type: 'image', return_format: 'id' }), 'number');
+  assert.strictEqual(shapeOf({ type: 'gallery' }), 'array<object:ID,id,title>');
+  assert.strictEqual(shapeOf({ type: 'gallery', return_format: 'url' }), 'array<string>');
+});
+test('choice fields: single, multiple and value + label', () => {
+  assert.strictEqual(shapeOf({ type: 'select' }), 'string');
+  assert.strictEqual(shapeOf({ type: 'select', multiple: 1 }), 'array<string>');
+  assert.strictEqual(shapeOf({ type: 'radio', return_format: 'array' }), 'object:value,label');
+  assert.strictEqual(shapeOf({ type: 'checkbox' }), 'array<string>');
+  assert.strictEqual(shapeOf({ type: 'link', return_format: 'url' }), 'string');
+});
+test('relational fields return WP objects or IDs', () => {
+  assert.strictEqual(shapeOf({ type: 'post_object' }), 'object:ID,post_title,post_name');
+  assert.strictEqual(shapeOf({ type: 'post_object', multiple: 1, return_format: 'id' }), 'array<number>');
+  assert.strictEqual(shapeOf({ type: 'relationship' }), 'array<object:ID,post_title,post_name>');
+  assert.strictEqual(shapeOf({ type: 'taxonomy' }), 'array<number>');
+  assert.strictEqual(shapeOf({ type: 'taxonomy', field_type: 'select', return_format: 'object' }), 'object:term_id,name,slug');
+  assert.strictEqual(shapeOf({ type: 'user' }), 'object:ID,user_firstname,user_lastname');
+  assert.strictEqual(shapeOf({ type: 'google_map' }), 'object:address,lat,lng');
+  assert.strictEqual(shapeOf({ type: 'number' }), 'number');
+});
+test('message, tab and accordion fields hold no value', () => {
+  const shape = shapeOf({
+    type: 'group',
+    sub_fields: [{ name: 'tab', type: 'tab' }, { name: 'note', type: 'message' }, { name: 'title', type: 'text' }],
+  });
+  assert.strictEqual(shape, 'object:title');
+});
+test('structure fields keep ACF settings of the same name and type', () => {
+  const [group] = buildAcfIndex([
+    JSON.stringify({ title: 'G', fields: [{ name: 'photo', type: 'image', return_format: 'url' }] }),
+  ]).topLevelFields.map((f) => [f]);
+  const struct = parseStructure('{# acf-fields: pb / x\n  photo: image\n  logo: image\nend-acf-fields #}').block!;
+  const fields = structToAcfFieldsWithSettings(struct.fields, group);
+  assert.deepStrictEqual(fields.map((f) => brief(acfFieldToShape(f))), ['string', 'object:ID,id,title']);
+});
+
+console.log('\nTemplate variables and includes');
+const BUTTON = [
+  '<a href="{{ link }}" target="{{ target }}"',
+  '  {% if arialabel %}aria-label="{{ arialabel }}"{% endif %} class="{{ class|default("") }}">',
+  '  {% for item in items %}{{ item.title }}{{ loop.index }}{% endfor %}',
+  '  {% set label = title|upper %}{{ label }} {{ format_price(price) }} {{ image.url }}',
+  '  {% include "icons/arrow.twig" with { class: "x" } %}',
+  '</a>',
+  '{% set course = course ?: post %}{{ course.title }}',
+].join('\n');
+test('template variables skip locals, keys, functions and filters', () => {
+  const vars = templateVariables(BUTTON);
+  assert.deepStrictEqual(
+    vars.map((v) => v.name + (v.optional ? '?' : '')),
+    ['link', 'target', 'arialabel?', 'class?', 'items', 'title', 'price', 'image', 'course', 'post']
+  );
+  assert.deepStrictEqual(vars.find((v) => v.name === 'image')!.members, ['url']);
+});
+test('includes parse paths, with-hash entries and only', () => {
+  const doc = `{% include 'partials/button.twig' with { link: block.link.url|default(''), 'title': t } only %}
+{{ include('icons/arrow.twig', { class: 'a, b' }) }}
+{% include "plain.twig" %}
+{% include 'blocks/' ~ block.acf_fc_layout ~ '.twig' %}`;
+  const tags = parseIncludes(doc);
+  assert.deepStrictEqual(tags.map((t) => [t.path, t.entries.map((e) => `${e.key}=${e.value}`), t.only]), [
+    ['partials/button.twig', ["link=block.link.url|default('')", 'title=t'], true],
+    ['icons/arrow.twig', ["class='a, b'"], false],
+    ['plain.twig', [], false],
+  ]);
+  assert.strictEqual(doc.slice(tags[0].entries[0].keyStart, tags[0].entries[0].keyStart + 4), 'link');
+});
+test('cursor in an include hash: key positions only', () => {
+  const at = (doc: string) => includeHashAt(doc.replace('|', ''), doc.indexOf('|'));
+  assert.deepStrictEqual(at(`{% include 'b.twig' with { link: x, ti| } %}`), { path: 'b.twig', prefix: 'ti', keys: ['link'] });
+  assert.deepStrictEqual(at(`{% include 'b.twig' with {\n  |`), { path: 'b.twig', prefix: '', keys: [] });
+  assert.strictEqual(at(`{% include 'b.twig' with { link: bl| } %}`), undefined);
+  assert.strictEqual(at(`{% include 'b.twig' with { link: f({ a| }) } %}`), undefined);
+});
+test('extends and blocks', () => {
+  const doc = `{% extends "base.twig" %}\n{% block content %}{% endblock %}\n{% block fo`;
+  assert.strictEqual(extendsPath(doc), 'base.twig');
+  assert.deepStrictEqual(blockTags(doc).map((b) => b.name), ['content', 'fo']);
+  assert.strictEqual(blockNameAt(doc, doc.length), 'fo');
+});
+
+console.log('\nTheme PHP: Twig extensions and global context');
+const CONTEXT_PHP = `<?php
+class Context {
+  public function __construct() {
+    add_filter('timber/context', [$this, 'add_to_context']);
+    add_filter('timber/twig/functions', [$this, 'add_functions']);
+    add_filter('timber/twig', [$this, 'add_filters']);
+  }
+  public function add_to_context($ctx) {
+    $ctx['options'] = get_fields('options');
+    $ctx['top_menu'] = Timber::get_menu('Top');
+    $ctx['site'] = new \\Timber\\Site();
+    return $ctx;
+  }
+  public function add_functions($functions) {
+    $names = ['get_price', 'is_member'];
+    foreach ($names as $name) {
+      $functions[$name] = ['callable' => [$this, $name]];
+    }
+    return $functions;
+  }
+  public function add_filters($twig) {
+    $twig->addFilter(new TwigFilter('keep_paragraphs', [$this, 'keep_paragraphs_filter']));
+    return $twig;
+  }
+  /**
+   * The price of a product, formatted.
+   *
+   * @param int $id
+   */
+  public function get_price(int $id, ?string $currency = null) {}
+  public function is_member() {}
+  public function keep_paragraphs_filter($content, $count = 2) {}
+}
+add_filter('timber/twig/filters', function ($filters) {
+  $filters['focus'] = ['callable' => function ($image) { return 1; }];
+  return $filters;
+});`;
+test('custom functions and filters with parameters, docs and lines', () => {
+  const found = parseTwigExtensions(CONTEXT_PHP);
+  assert.deepStrictEqual(
+    found.map((c) => `${c.kind}:${c.name}(${c.params ?? ''})`),
+    ['filter:keep_paragraphs($content, $count = 2)', 'filter:focus($image)', 'function:get_price($id, $currency = null)', 'function:is_member()']
+  );
+  const price = found.find((c) => c.name === 'get_price')!;
+  assert.strictEqual(price.doc, 'The price of a product, formatted.');
+  assert.strictEqual(CONTEXT_PHP.split('\n')[price.line].includes('function get_price'), true);
+});
+test('timber/context variables get shapes: options page, menu, site', () => {
+  const vars = parseGlobalContext(CONTEXT_PHP);
+  assert.deepStrictEqual([...vars.keys()], ['options', 'top_menu', 'site']);
+  const optionsAcf = buildAcfIndex([
+    JSON.stringify({
+      title: 'Site Settings',
+      location: [[{ param: 'options_page', operator: '==', value: 'site-settings' }]],
+      fields: [{ name: 'phone', type: 'text' }, { name: 'logo', type: 'image' }],
+    }),
+  ]);
+  const options = phpValueToShape(vars.get('options')!.value, optionsAcf);
+  assert.deepStrictEqual([...options.keys!.keys()], ['phone', 'logo']);
+  assert.strictEqual(options.acfType, 'options');
+  assert.strictEqual(phpValueToShape(vars.get('options')!.value, acf).kind, 'unknown', 'no options group, no keys');
+  assert.ok(phpValueToShape(vars.get('top_menu')!.value, acf).keys!.has('items'));
+  assert.ok(phpValueToShape(vars.get('site')!.value, acf).keys!.has('url'));
+});
+
+console.log('\nChecks');
+const ROW = layoutRowShape('cards', [
+  { name: 'heading', type: 'text' },
+  { name: 'link', type: 'link' },
+  { name: 'cards', type: 'repeater', subFields: [{ name: 'title', type: 'text' }] },
+]);
+const rowResolver = new ContextResolver({ contextVars: new Map([['block', ROW]]), acf, enableGlobals: true, assumePostVariables: true });
+test('shape of passed values: chains, filters, literals, hashes, ternaries', () => {
+  const shape = (e: string) => shapeOfExpr(e, (c) => rowResolver.resolveExpr(c, new Map())).kind;
+  assert.strictEqual(shape("block.link|default('')"), 'object');
+  assert.strictEqual(shape('block.link.title|e'), 'string');
+  assert.strictEqual(shape('block.cards|length'), 'number');
+  assert.strictEqual(shape("'light' ~ x"), 'string');
+  assert.strictEqual(shape("x == 1 ? block.link : ''"), 'object');
+  assert.deepStrictEqual([...shapeOfExpr('{ a: 1, b: block.heading }', () => undefined).keys!.keys()], ['a', 'b']);
+});
+test('member access: typos, lists, and unknown data are left alone', () => {
+  const doc = [
+    '<a href="{{ block.link.urll }}">{{ block.headng }}</a>',
+    '{{ block.cards.title }} {{ block.link.url }} {{ thing.whatever }} {{ block.heading|upper }}',
+    '{% for card in block.cards %}{{ card.titel }}{{ loop.index }}{% endfor %}',
+  ].join('\n');
+  const problems = checkMemberAccess(doc, (chain, offset) =>
+    rowResolver.resolveExpr(chain, rowResolver.buildLoopVars(findEnclosingLoops(doc, offset)))
+  );
+  assert.deepStrictEqual(
+    problems.map((p) => doc.slice(p.offset, p.offset + p.length)),
+    ['urll', 'headng', 'title', 'titel']
+  );
+  assert.ok(problems[0].message.includes("Did you mean 'url'?"), problems[0].message);
+  assert.ok(problems[2].message.includes('is a list'), problems[2].message);
+});
+test('unused structure fields, read from markup attributes too', () => {
+  const struct = parseStructure(
+    '{# acf-fields: pb / x\n  heading: text\n  link: link\n  items: repeater\n    title: text\n    icon: image\nend-acf-fields #}'
+  ).block!;
+  const body = '<a href="{{ block.link.url }}">{% for i in block.items %}{{ i.title }}{% endfor %}</a>';
+  assert.deepStrictEqual(unusedStructureFields(struct.fields, body, 'block').map((f) => f.name), ['heading', 'icon']);
 });
 
 console.log(`\n${passed} checks passed.`);

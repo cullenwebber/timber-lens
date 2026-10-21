@@ -1,6 +1,10 @@
 import * as vscode from 'vscode';
 import { ProjectIndex } from '../services/projectIndex';
 import { rangeFromOffsets } from '../utils/ranges';
+import { findEnclosingLoops } from '../parsers/twigContextParser';
+import { parseIncludes, templateVariables } from '../parsers/twigTemplateParser';
+import { checkMemberAccess } from '../services/twigChecks';
+import { TypeShape } from '../models/context';
 
 // Matches a whole include/extends/embed/import/from tag.
 const TAG_RE = /\{%-?\s*(include|extends|embed|import|from)\s+([\s\S]*?)-?%\}/g;
@@ -47,6 +51,8 @@ export class TwigDiagnosticsProvider {
 
     this.checkIncludes(document, text, diagnostics);
     this.checkMeta(document, text, diagnostics);
+    this.checkMembers(document, text, diagnostics);
+    this.checkIncludeVariables(document, text, diagnostics);
 
     this.collection.set(document.uri, diagnostics);
   }
@@ -109,6 +115,96 @@ export class TwigDiagnosticsProvider {
     );
     diag.source = 'Timber Lens';
     diagnostics.push(diag);
+  }
+
+  // ---- C. Fields ACF data does not have -------------------------------------
+
+  private checkMembers(document: vscode.TextDocument, text: string, diagnostics: vscode.Diagnostic[]): void {
+    const resolver = this.index.resolverForTwig(document.uri.fsPath, text);
+    const loopCache = new Map<string, Map<string, TypeShape>>();
+    const problems = checkMemberAccess(text, (chain, offset) => {
+      const loops = findEnclosingLoops(text, offset);
+      const key = loops.map((l) => l.bodyStart).join(',');
+      let loopVars = loopCache.get(key);
+      if (!loopVars) {
+        loopVars = resolver.buildLoopVars(loops);
+        loopCache.set(key, loopVars);
+      }
+      return resolver.resolveExpr(chain, loopVars);
+    });
+    for (const p of problems) {
+      const diag = new vscode.Diagnostic(
+        rangeFromOffsets(document, p.offset, p.offset + p.length),
+        `Timber Lens: ${p.message}`,
+        vscode.DiagnosticSeverity.Warning
+      );
+      diag.source = 'Timber Lens';
+      diagnostics.push(diag);
+    }
+  }
+
+  // ---- D. Variables passed to includes ---------------------------------------
+
+  private checkIncludeVariables(document: vscode.TextDocument, text: string, diagnostics: vscode.Diagnostic[]): void {
+    for (const tag of parseIncludes(text)) {
+      const target = this.index.resolveInclude(tag.path);
+      const targetText = target && this.index.templateText(target.fsPath);
+      if (!target || !targetText) {
+        continue;
+      }
+      const used = this.usedVariables(target.fsPath);
+      for (const entry of tag.entries) {
+        if (used.has(entry.key) || used.has('_context')) {
+          continue;
+        }
+        const diag = new vscode.Diagnostic(
+          rangeFromOffsets(document, entry.keyStart, entry.keyStart + entry.key.length),
+          `Timber Lens: ${tag.path} does not use '${entry.key}'.`,
+          vscode.DiagnosticSeverity.Hint
+        );
+        diag.tags = [vscode.DiagnosticTag.Unnecessary];
+        diag.source = 'Timber Lens';
+        diagnostics.push(diag);
+      }
+      // With `only`, anything not in the hash is undefined in the template.
+      if (tag.only) {
+        const passed = new Set(tag.entries.map((e) => e.key));
+        const missing = templateVariables(targetText).filter((v) => !v.optional && !passed.has(v.name));
+        if (missing.length > 0) {
+          const diag = new vscode.Diagnostic(
+            rangeFromOffsets(document, tag.pathStart, tag.pathEnd),
+            `Timber Lens: ${tag.path} uses ${missing.map((v) => `'${v.name}'`).join(', ')}, which 'only' leaves undefined.`,
+            vscode.DiagnosticSeverity.Warning
+          );
+          diag.source = 'Timber Lens';
+          diagnostics.push(diag);
+        }
+      }
+    }
+  }
+
+  /** Variables a template reads, including those it hands on to includes without `only`. */
+  private usedVariables(fsPath: string, depth = 0, seen = new Set<string>()): Set<string> {
+    const text = this.index.templateText(fsPath);
+    const used = new Set<string>();
+    if (!text || seen.has(fsPath)) {
+      return used;
+    }
+    seen.add(fsPath);
+    templateVariables(text).forEach((v) => used.add(v.name));
+    // _context reads variables by name at runtime, so anything may be used.
+    if (/\b_context\b/.test(text)) {
+      used.add('_context');
+    }
+    if (depth < 3) {
+      for (const tag of parseIncludes(text)) {
+        const target = !tag.only && this.index.resolveInclude(tag.path);
+        if (target) {
+          this.usedVariables(target.fsPath, depth + 1, seen).forEach((n) => used.add(n));
+        }
+      }
+    }
+    return used;
   }
 
   // ---- B. Unknown ACF field in post.meta('...') -------------------------

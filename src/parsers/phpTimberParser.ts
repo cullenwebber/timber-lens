@@ -13,6 +13,9 @@ export type PhpValue =
   | { kind: 'bool' }
   | { kind: 'var'; name: string }
   | { kind: 'call'; name: string }
+  /** get_fields('options'): every field on ACF options pages. */
+  | { kind: 'options' }
+  | { kind: 'new'; className: string }
   | { kind: 'unknown' };
 
 export interface PhpEntry {
@@ -237,6 +240,13 @@ export function parseValue(raw: string): PhpValue {
     const open = expr.indexOf('(');
     return parseArrayLiteral(expr, open, '(', ')');
   }
+  if (/^get_fields\s*\(\s*['"]options?['"]/.test(expr)) {
+    return { kind: 'options' };
+  }
+  const newMatch = expr.match(/^new\s+\\?([\w\\]+)/);
+  if (newMatch) {
+    return { kind: 'new', className: newMatch[1] };
+  }
   const getField = expr.match(/^get_field\s*\(\s*['"]([^'"]+)['"]/);
   if (getField) {
     return { kind: 'getField', field: getField[1] };
@@ -407,7 +417,7 @@ function findTopLevel(text: string, token: string): number {
 }
 
 /** Read an expression from `start` up to the terminating ';' at depth 0. */
-function readUntilStatementEnd(src: string, start: number): string | undefined {
+export function readUntilStatementEnd(src: string, start: number): string | undefined {
   let depth = 0;
   let inString: string | null = null;
   for (let i = start; i < src.length; i++) {
@@ -434,7 +444,7 @@ function readUntilStatementEnd(src: string, start: number): string | undefined {
 }
 
 /** Remove // line comments, # line comments and block comments. */
-function stripComments(src: string): string {
+export function stripComments(src: string): string {
   let out = '';
   let inString: string | null = null;
   for (let i = 0; i < src.length; i++) {

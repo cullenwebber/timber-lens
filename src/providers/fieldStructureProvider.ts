@@ -12,6 +12,8 @@ import {
 } from '../services/fieldStructure';
 import { AcfField, AcfLayout } from '../models/acf';
 import { baseName, toPosix } from '../utils/paths';
+import { unusedStructureFields } from '../services/twigChecks';
+import { parseIncludes, twigCodeOnly } from '../parsers/twigTemplateParser';
 
 /**
  * The editable `acf-fields` structure comment in block templates: CodeLenses
@@ -113,7 +115,33 @@ export class FieldStructureProvider implements vscode.CodeLensProvider {
       d.source = 'Timber Lens';
       diags.push(d);
     }
+    const body = block ? document.getText().slice(block.end) : '';
+    if (block && !this.forwardsBlock(body)) {
+      for (const f of unusedStructureFields(block.fields, body, this.index.blockVar)) {
+        const line = document.lineAt(f.line);
+        const d = new vscode.Diagnostic(
+          line.range.with(line.range.start.with({ character: line.firstNonWhitespaceCharacterIndex })),
+          `Timber Lens: "${f.name}" is not used in this template.`,
+          vscode.DiagnosticSeverity.Hint
+        );
+        d.tags = [vscode.DiagnosticTag.Unnecessary];
+        d.source = 'Timber Lens';
+        diags.push(d);
+      }
+    }
     this.diagnostics.set(document.uri, diags);
+  }
+
+  /** The row is handed on whole, or to an include that reads it, so its use is not visible here. */
+  private forwardsBlock(body: string): boolean {
+    const blockVar = this.index.blockVar;
+    if (new RegExp(`\\b${blockVar}\\b(?!\\s*[.\\[])`).test(twigCodeOnly(body.replace(/\{%-?\s*(?:for\s+\w+\s+in[^%]*|(?:end)?block\b[^%]*)%\}/g, '')))) {
+      return true;
+    }
+    return parseIncludes(body).some((tag) => {
+      const target = !tag.only && this.index.resolveInclude(tag.path);
+      return target && (this.index.templateText(target.fsPath) ?? '').includes(`${blockVar}.`);
+    });
   }
 
   // ---- commands -----------------------------------------------------------

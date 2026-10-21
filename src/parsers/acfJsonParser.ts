@@ -5,7 +5,7 @@ import { AcfField, AcfFieldGroup, AcfLayout } from '../models/acf';
  * group. ACF export files are objects with a `title` and a `fields` array.
  * Some exports wrap multiple groups in a top-level array.
  */
-export function parseAcfJson(raw: string): AcfFieldGroup[] {
+export function parseAcfJson(raw: string, file?: string): AcfFieldGroup[] {
   let data: unknown;
   try {
     data = JSON.parse(raw);
@@ -26,18 +26,24 @@ export function parseAcfJson(raw: string): AcfFieldGroup[] {
     }
     const title = typeof obj.title === 'string' ? obj.title : 'ACF';
     const fields = obj.fields
-      .map((f) => normalizeField(f, title, undefined))
+      .map((f) => normalizeField(f, title, undefined, file))
       .filter((f): f is AcfField => f !== undefined);
-    groups.push({ title, fields });
+    groups.push({ title, fields, isOptions: isOptionsGroup(obj.location) });
   }
 
   return groups;
 }
 
+/** True when any location rule targets an options page. */
+function isOptionsGroup(location: unknown): boolean {
+  return JSON.stringify(location ?? []).includes('"param":"options_page"');
+}
+
 function normalizeField(
   raw: unknown,
   group: string,
-  parent: string | undefined
+  parent: string | undefined,
+  file?: string
 ): AcfField | undefined {
   if (!raw || typeof raw !== 'object') {
     return undefined;
@@ -56,12 +62,22 @@ function normalizeField(
     parent,
     label: typeof obj.label === 'string' ? obj.label : undefined,
     key: typeof obj.key === 'string' ? obj.key : undefined,
+    file,
   };
+  if (typeof obj.return_format === 'string' && obj.return_format !== '') {
+    field.returnFormat = obj.return_format;
+  }
+  if (obj.multiple === 1 || obj.multiple === '1' || obj.multiple === true) {
+    field.multiple = true;
+  }
+  if (typeof obj.field_type === 'string') {
+    field.fieldType = obj.field_type;
+  }
 
   // group / repeater sub fields
   if (Array.isArray(obj.sub_fields)) {
     field.subFields = obj.sub_fields
-      .map((sf) => normalizeField(sf, group, name))
+      .map((sf) => normalizeField(sf, group, name, file))
       .filter((f): f is AcfField => f !== undefined);
   }
 
@@ -72,14 +88,14 @@ function normalizeField(
       ? obj.layouts
       : Object.values(obj.layouts as Record<string, unknown>);
     field.layouts = layoutValues
-      .map((l) => normalizeLayout(l, group))
+      .map((l) => normalizeLayout(l, group, file))
       .filter((l): l is AcfLayout => l !== undefined);
   }
 
   return field;
 }
 
-function normalizeLayout(raw: unknown, group: string): AcfLayout | undefined {
+function normalizeLayout(raw: unknown, group: string, file?: string): AcfLayout | undefined {
   if (!raw || typeof raw !== 'object') {
     return undefined;
   }
@@ -90,7 +106,7 @@ function normalizeLayout(raw: unknown, group: string): AcfLayout | undefined {
   }
   const subFields = Array.isArray(obj.sub_fields)
     ? obj.sub_fields
-        .map((sf) => normalizeField(sf, group, name))
+        .map((sf) => normalizeField(sf, group, name, file))
         .filter((f): f is AcfField => f !== undefined)
     : [];
   return {

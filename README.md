@@ -47,18 +47,49 @@ candidate template.
 
 ### 4. Twig template path autocomplete
 Inside `include` / `extends` / `embed` / `import` / `from`, suggests `.twig`
-files from the configured Twig roots.
+files from the configured Twig roots. Each suggestion lists the variables the
+template uses, and SVG templates (icons) show a preview.
 
-### 5. Hover
-Hovering a variable or ACF field shows its inferred type, source PHP file, ACF
-field type and field group where known.
+### 5. Variables passed to includes
+- Inside `{% include 'x.twig' with { … } %}`, suggests the variables `x.twig`
+  reads, required ones first, marking those it tests or defaults as optional.
+- In the included template, those variables resolve to what the including
+  templates pass (`link` in `button.twig` is the string 21 templates pass),
+  along with loop variables and context inherited at the include.
+- Hovering an include path shows the variables it expects and how many
+  templates include it.
 
-### 6. Diagnostics
+### 6. Custom functions, filters and global context
+- Functions and filters the theme registers (`timber/twig/functions`,
+  `timber/twig/filters`, `TwigFunction` / `TwigFilter`) complete after `|` and
+  as functions, with their PHP parameters and docblock; built-in Twig and
+  Timber filters and functions are listed too.
+- Variables added to every template by a `timber/context` filter are known,
+  including `get_fields('options')` (fields of ACF options page groups),
+  `Timber::get_menu()`, `new Timber\Site()` and `wp_get_current_user()`.
+
+### 7. Hover and go to definition
+Hovering a variable or ACF field shows the full shape of its value (every key
+and its type, following the field's return format), its source and ACF field
+group. Hovering a function or filter shows its signature and docs.
+
+Cmd/Ctrl-click jumps to: an include path's template; a custom function or
+filter's PHP; the parent block a `{% block %}` overrides; an ACF field's line
+in the structure comment or its definition in ACF JSON; or where a variable
+comes from (the PHP that sets it, the include that passes it, or the
+`timber/context` filter).
+
+### 8. Diagnostics
 - Warns on **static** include paths that cannot be resolved.
 - Warns on `post.meta('...')` fields not present in any ACF JSON.
+- Warns on fields ACF data does not have (`block.titel` — "did you mean
+  `title`?"), including a repeater read as if it were one row.
+- Fades `with { … }` keys the included template never uses, and warns when an
+  `only` include leaves a required variable out.
+- Fades fields in the `acf-fields` structure the template never outputs.
 - Dynamic includes using `~` concatenation are never flagged.
 
-### 7. Template Context panel
+### 9. Template Context panel
 The **Timber Context** view in the Explorer follows the active Twig template
 and shows everything Timber Lens knows about it — so a missing or surprising
 completion can be explained at a glance:
@@ -74,7 +105,7 @@ completion can be explained at a glance:
 
 Run **Timber Lens: Show Template Context** to open it.
 
-### 8. Create block templates from ACF layouts
+### 10. Create block templates from ACF layouts
 **Timber Lens: Create Block Template from ACF Layout** (also the ＋ button on
 the Timber Context view) lists your flexible content layouts and creates
 `blocks/<layout>.twig`, pre-filled with markup for every sub field: headings,
@@ -82,7 +113,7 @@ text, links, images, repeater loops and so on, read from the loop variable
 your templates already use (`block` by default). Layouts that already have a
 template open it instead.
 
-### 9. Editable ACF field structure
+### 11. Editable ACF field structure
 Block templates start with a Twig comment describing their layout's fields,
 generated from ACF JSON (new block templates get it automatically; use the
 **Insert ACF field structure** CodeLens on older ones):
@@ -112,8 +143,15 @@ under a `group` or `repeater`. Edit it, then use the CodeLens above it:
 Lines that cannot be applied (unknown types, bad indentation, duplicates) are
 underlined as errors.
 
+While typing the structure, completion offers whole fields from your ACF JSON
+(those the layout already has first, then fields that usually sit beside the
+ones written), field types ranked by how the name is used elsewhere, and
+labels. Fields in the structure resolve in the template straight away, before
+they are applied.
+
+`{% block %}` names complete from the parent template of `{% extends %}`.
+
 ### Nice-to-haves
-- Cmd/Ctrl-click a Twig include path to open the file.
 - Fallback built-in Timber globals: `post`, `site`, `user`, `menu`.
 
 ## Settings
@@ -138,6 +176,29 @@ node ./out/test/run.js   # run the core acceptance tests
 Press **F5** to launch an Extension Development Host with the bundled
 `example/` workspace, which demonstrates every feature (see the comments in
 `example/views/page-home.twig`).
+
+### Installing a release
+
+Download `timber-lens-<version>.vsix` from the
+[releases page](https://github.com/cullenwebber/timber-lens/releases), then:
+
+```bash
+code --install-extension timber-lens-<version>.vsix
+```
+
+### Releasing
+
+Pushing a `v*` tag runs the tests, packages the extension and publishes a
+GitHub release with the `.vsix` attached and notes generated from the commits
+since the last release (`.github/workflows/release.yml`):
+
+```bash
+npm version minor        # bumps package.json, commits, tags v0.2.0
+git push --follow-tags
+```
+
+The tag must match the `package.json` version, so always bump with
+`npm version`. `npm run package` builds the `.vsix` locally.
 
 ## Architecture
 

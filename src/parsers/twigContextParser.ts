@@ -2,7 +2,7 @@
 // only look at the text immediately before the cursor (plus the whole document
 // for loop scoping) to decide what kind of completion / hover is appropriate.
 
-export type CursorKind = 'path' | 'meta' | 'member' | 'root' | 'none';
+export type CursorKind = 'path' | 'meta' | 'member' | 'filter' | 'root' | 'none';
 
 /**
  * Returns true when the cursor is inside a Twig expression `{{ ... }}` or a
@@ -35,6 +35,8 @@ export interface CursorContext {
   memberPrefix?: string;
   /** Partial root identifier being typed. */
   rootPrefix?: string;
+  /** Partial filter name being typed after `|`. */
+  filterPrefix?: string;
 }
 
 const PATH_TAG_RE = /\{%-?\s*(include|extends|embed|import|from)\s+(['"])([^'"]*)$/;
@@ -73,7 +75,13 @@ export function detectCursorContext(textBeforeCursor: string): CursorContext {
     return { kind: 'meta', metaPrefix: metaOpen[2] };
   }
 
-  // 3. Member access chain ending in a dot.
+  // 3. Filter name after a pipe (not the `||` operator).
+  const filter = linePrefix.match(/(?<!\|)\|\s*([A-Za-z_]\w*)?$/);
+  if (filter) {
+    return { kind: 'filter', filterPrefix: filter[1] ?? '' };
+  }
+
+  // 4. Member access chain ending in a dot.
   const member = linePrefix.match(MEMBER_RE);
   if (member) {
     return {
@@ -83,7 +91,7 @@ export function detectCursorContext(textBeforeCursor: string): CursorContext {
     };
   }
 
-  // 4. Bare root identifier.
+  // 5. Bare root identifier.
   const root = linePrefix.match(ROOT_RE);
   if (root) {
     return { kind: 'root', rootPrefix: root[2] ?? '' };

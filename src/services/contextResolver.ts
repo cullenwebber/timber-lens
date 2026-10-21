@@ -121,7 +121,7 @@ export class ContextResolver {
  * Build the shape for the Timber `post` global: ACF top-level fields exposed as
  * direct properties, plus a handful of common Timber\Post properties.
  */
-function buildPostShape(acf: AcfIndex): TypeShape {
+export function buildPostShape(acf: AcfIndex): TypeShape {
   const keys = new Map<string, TypeShape>();
 
   // Common Timber\Post members.
@@ -159,7 +159,7 @@ function buildPostShape(acf: AcfIndex): TypeShape {
   return objectShape(keys, { builtin: true, label: 'Timber post' });
 }
 
-function builtinGlobalShape(name: string): TypeShape {
+export function builtinGlobalShape(name: string): TypeShape {
   if (name === 'site') {
     return objectShape(
       new Map<string, TypeShape>([
@@ -194,7 +194,7 @@ function builtinGlobalShape(name: string): TypeShape {
 }
 
 /** A Timber term (taxonomy) object. */
-function termShape(): TypeShape {
+export function termShape(): TypeShape {
   return objectShape(
     new Map<string, TypeShape>([
       ['id', { kind: 'number' }],

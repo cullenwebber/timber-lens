@@ -181,8 +181,8 @@ export class TemplateContextView implements vscode.TreeDataProvider<ContextNode>
     const fsPath = doc.uri.fsPath;
     const renders = this.index.renderContextsFor(fsPath);
     const layout = this.index.blockLayoutFor(fsPath);
-    const ctx = this.index.contextForTwig(fsPath);
-    const resolver = this.index.resolverForTwig(fsPath);
+    const ctx = this.index.contextForTwig(fsPath, doc.getText());
+    const resolver = this.index.resolverForTwig(fsPath, doc.getText());
     const assumePosts = this.index.config.assumePostVariables;
     const sections: ContextNode[] = [];
 

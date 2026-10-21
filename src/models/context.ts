@@ -22,6 +22,9 @@ export interface TypeShape {
   // ---- metadata used for hover / detail text ----
   /** Original ACF field type when this shape was derived from ACF. */
   acfType?: string;
+  /** ACF field key and the JSON file defining it, for go-to-definition. */
+  acfKey?: string;
+  acfFile?: string;
   /** ACF field group title, when known. */
   fieldGroup?: string;
   /** ACF / context field machine name, when known. */

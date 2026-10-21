@@ -57,13 +57,13 @@ export const ACF_TYPES = new Set([
   'message', 'accordion', 'tab', 'group', 'repeater', 'flexible_content', 'clone',
 ]);
 /** Types whose sub fields are written as indented children. */
-const CONTAINER_TYPES = new Set(['group', 'repeater']);
+export const CONTAINER_TYPES = new Set(['group', 'repeater']);
 
-const HEADER_RE = /\{#-?[ \t]*acf-fields:[ \t]*(.*)$/m;
+export const HEADER_RE = /\{#-?[ \t]*acf-fields:[ \t]*(.*)$/m;
 const HEADER_BODY_RE = /^([\w-]+)\s*\/\s*([\w-]+)(?:\s+"([^"]*)")?\s*$/;
-const END_RE = /^[ \t]*end-acf-fields[ \t]*-?#\}/m;
+export const END_RE = /^[ \t]*end-acf-fields[ \t]*-?#\}/m;
 const FIELD_RE = /^(\s*)([A-Za-z0-9_-]+)\s*:\s*([a-z_]+)(?:\s+"([^"]*)")?\s*$/;
-const INDENT = '  ';
+export const INDENT = '  ';
 
 // ---------------------------------------------------------------------------
 // Formatting
@@ -77,18 +77,23 @@ export function formatStructure(
   fields: AcfField[]
 ): string {
   const label = layoutLabel ?? humanize(layoutName);
-  const lines = [`{# acf-fields: ${owner} / ${layoutName} "${label}"`];
-  const walk = (list: AcfField[], depth: number) => {
-    for (const f of list) {
-      lines.push(`${INDENT.repeat(depth)}${f.name}: ${f.type} "${f.label ?? humanize(f.name)}"`);
-      if (CONTAINER_TYPES.has(f.type)) {
-        walk(f.subFields ?? [], depth + 1);
-      }
+  return [
+    `{# acf-fields: ${owner} / ${layoutName} "${label}"`,
+    ...formatFieldLines(fields, 1),
+    'end-acf-fields #}',
+  ].join('\n');
+}
+
+/** Structure lines for fields and their sub fields, starting at `depth`. */
+export function formatFieldLines(fields: AcfField[], depth: number): string[] {
+  const lines: string[] = [];
+  for (const f of fields) {
+    lines.push(`${INDENT.repeat(depth)}${f.name}: ${f.type} "${f.label ?? humanize(f.name)}"`);
+    if (CONTAINER_TYPES.has(f.type)) {
+      lines.push(...formatFieldLines(f.subFields ?? [], depth + 1));
     }
-  };
-  walk(fields, 1);
-  lines.push('end-acf-fields #}');
-  return lines.join('\n');
+  }
+  return lines;
 }
 
 /** Turn a parsed structure back into ACF-like fields (default labels filled). */
@@ -99,6 +104,24 @@ export function structToAcfFields(fields: StructField[]): AcfField[] {
     label: f.label ?? humanize(f.name),
     subFields: structToAcfFields(f.children),
   }));
+}
+
+/**
+ * Structure fields as ACF fields, carrying the settings (return format, ...)
+ * of same-named, same-typed fields in `acfFields`. Fields new to ACF keep
+ * ACF's defaults, which is what applying the structure writes.
+ */
+export function structToAcfFieldsWithSettings(fields: StructField[], acfFields: AcfField[]): AcfField[] {
+  return fields.map((f) => {
+    const acf = acfFields.find((a) => a.name === f.name && a.type === f.type);
+    return {
+      ...(acf ?? {}),
+      name: f.name,
+      type: f.type,
+      label: f.label ?? humanize(f.name),
+      subFields: structToAcfFieldsWithSettings(f.children, acf?.subFields ?? []),
+    };
+  });
 }
 
 /** True when the parsed structure says the same as the ACF layout. */
@@ -217,6 +240,23 @@ export function parseStructure(text: string): { block?: StructureBlock; errors: 
     },
     errors,
   };
+}
+
+/** The field on a document line and its parents, outermost first. */
+export function fieldPathAtLine(block: StructureBlock, line: number): StructField[] | undefined {
+  const search = (fields: StructField[], path: StructField[]): StructField[] | undefined => {
+    for (const f of fields) {
+      if (f.line === line) {
+        return [...path, f];
+      }
+      const found = search(f.children, [...path, f]);
+      if (found) {
+        return found;
+      }
+    }
+    return undefined;
+  };
+  return search(block.fields, []);
 }
 
 function lineAt(text: string, offset: number): number {

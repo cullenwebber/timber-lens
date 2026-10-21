@@ -13,6 +13,14 @@ export interface AcfField {
   parent?: string;
   /** Title of the owning ACF field group, e.g. "Home Page". */
   group?: string;
+  /** ACF `return_format` (image, link, select, post_object, ...); ACF's default when absent. */
+  returnFormat?: string;
+  /** Select / post_object / user / page_link set to allow several values. */
+  multiple?: boolean;
+  /** Taxonomy field appearance: checkbox, multi_select, radio or select. */
+  fieldType?: string;
+  /** ACF JSON file the field is defined in. */
+  file?: string;
   /** Sub fields for group / repeater fields. */
   subFields?: AcfField[];
   /** Layouts for flexible_content fields. */
@@ -27,5 +35,7 @@ export interface AcfLayout {
 
 export interface AcfFieldGroup {
   title: string;
+  /** Shown on an ACF options page, so read with get_field(..., 'option'). */
+  isOptions?: boolean;
   fields: AcfField[];
 }

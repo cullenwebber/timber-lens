@@ -1,0 +1,46 @@
+# Publishes a GitHub release with the packaged .vsix whenever a version tag
+# (v1.2.3) is pushed. Create one with `npm version patch|minor|major` and
+# `git push --follow-tags`.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Check the tag matches package.json
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version $version" >&2
+            exit 1
+          fi
+
+      - run: npm test
+
+      - name: Package
+        run: npx vsce package --out "timber-lens-${GITHUB_REF_NAME#v}.vsix"
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" timber-lens-*.vsix \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes

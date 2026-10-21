@@ -7,6 +7,7 @@ import { TwigDefinitionProvider } from './providers/twigDefinitionProvider';
 import { TemplateContextView } from './views/templateContextView';
 import { createBlockTemplate } from './commands/createBlockTemplate';
 import { FieldStructureProvider } from './providers/fieldStructureProvider';
+import { FieldStructureCompletionProvider } from './providers/fieldStructureCompletionProvider';
 
 const TWIG_SELECTOR: vscode.DocumentSelector = [
   { language: 'twig' },
@@ -20,8 +21,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   projectIndex = index;
   context.subscriptions.push({ dispose: () => index.dispose() });
 
-  // Completion. Trigger on '.', quotes and '/' so member / meta / path
-  // completions fire as the developer types.
+  // Completion. Trigger on '.', quotes, '/' and '|' so member / meta / path /
+  // filter completions fire as the developer types.
   context.subscriptions.push(
     vscode.languages.registerCompletionItemProvider(
       TWIG_SELECTOR,
@@ -29,7 +30,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       '.',
       "'",
       '"',
-      '/'
+      '/',
+      '|'
     )
   );
 
@@ -55,6 +57,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // Editable ACF field structure comment in block templates.
   new FieldStructureProvider(index).register(context, TWIG_SELECTOR);
+
+  // Fields, types and labels while typing that structure. It is a Twig
+  // comment, so package.json turns quick suggestions on in Twig comments.
+  context.subscriptions.push(
+    vscode.languages.registerCompletionItemProvider(
+      TWIG_SELECTOR,
+      new FieldStructureCompletionProvider(index),
+      ':',
+      ' ',
+      '/',
+      '"'
+    )
+  );
 
   // Scaffold a block template from a flexible content layout.
   context.subscriptions.push(
