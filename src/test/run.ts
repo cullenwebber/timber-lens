@@ -245,8 +245,25 @@ test("include 'part suggests partials/buttons/button.twig", () => {
   const before = "{% include 'part";
   const ctx = detectCursorContext(before);
   assert.strictEqual(ctx.kind, 'path');
-  const cands = includeCandidates(ctx.pathPrefix!, templates);
+  const cands = includeCandidates(templates);
   assert.ok(cands.includes('partials/buttons/button.twig'), cands.join(','));
+});
+test('each template is suggested once, relative to views/templates', () => {
+  assert.deepStrictEqual(includeCandidates(templates), [
+    'blocks/hero_block.twig',
+    'page-home.twig',
+    'partials/buttons/button.twig',
+  ]);
+});
+test('nested roots are relative to the Timber loader root', () => {
+  const nested = buildTwigIndex(
+    ['/theme/views/partials/buttons/button.twig', '/theme/templates/components/card.twig'],
+    TWIG_ROOTS
+  );
+  assert.deepStrictEqual(includeCandidates(nested), [
+    'components/card.twig',
+    'partials/buttons/button.twig',
+  ]);
 });
 test('resolveIncludePath finds existing template', () => {
   assert.ok(resolveIncludePath('partials/buttons/button.twig', templates));

@@ -9,6 +9,8 @@ export interface TwigTemplate {
    * e.g. "partials/buttons/button.twig". Derived from configured Twig roots.
    */
   relPaths: string[];
+  /** The preferred entry of relPaths, offered as the include completion. */
+  includePath: string;
 }
 
 /** The variables available inside a particular Twig template, from PHP. */

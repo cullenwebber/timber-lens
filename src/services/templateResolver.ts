@@ -13,21 +13,12 @@ export function resolveIncludePath(
   return templates.find((t) => t.relPaths.includes(target));
 }
 
-/** Gather all include candidate paths matching the prefix. */
-export function includeCandidates(
-  prefix: string,
-  templates: TwigTemplate[]
-): string[] {
-  const norm = toPosix(prefix);
-  const out = new Set<string>();
-  for (const t of templates) {
-    for (const rel of t.relPaths) {
-      if (rel.startsWith(norm) || norm === '') {
-        out.add(rel);
-      }
-    }
-  }
-  return [...out].sort();
+/**
+ * One include path per template for completion: its preferred includePath.
+ * Filtering against the typed prefix is left to the editor.
+ */
+export function includeCandidates(templates: TwigTemplate[]): string[] {
+  return [...new Set(templates.map((t) => t.includePath))].sort();
 }
 
 /**

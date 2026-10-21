@@ -43,6 +43,51 @@ export function computeRelPaths(absPath: string, twigRoots: string[]): string[] 
 }
 
 /**
+ * Directory names Timber registers as loader roots by default (Timber 1 uses
+ * `views`, Timber 2 `templates` and `views`). Includes are written relative to
+ * these, so the folder itself is never part of the path. Other configured roots
+ * (blocks, partials, ...) are ordinary folders whose name stays in the path.
+ */
+const TIMBER_LOADER_DIRS = ['views', 'templates'];
+
+/**
+ * The one include path to suggest for a template. Relative to the innermost
+ * Timber loader root when there is one (".../views/partials/x.twig" ->
+ * "partials/x.twig"), otherwise starting at the outermost configured root
+ * (".../partials/buttons/x.twig" -> "partials/buttons/x.twig"). Always one of
+ * computeRelPaths(), so it resolves.
+ */
+export function canonicalIncludePath(
+  absPath: string,
+  twigRoots: string[]
+): string | undefined {
+  const posix = '/' + toPosix(absPath).replace(/^\/+/, '');
+
+  let loaderEnd = -1;
+  for (const root of twigRoots) {
+    if (!TIMBER_LOADER_DIRS.includes(root)) {
+      continue;
+    }
+    const idx = posix.lastIndexOf(`/${root}/`);
+    if (idx !== -1) {
+      loaderEnd = Math.max(loaderEnd, idx + root.length + 2);
+    }
+  }
+  if (loaderEnd !== -1) {
+    return posix.slice(loaderEnd);
+  }
+
+  let outermost = -1;
+  for (const root of twigRoots) {
+    const idx = posix.lastIndexOf(`/${root}/`);
+    if (idx !== -1 && (outermost === -1 || idx < outermost)) {
+      outermost = idx;
+    }
+  }
+  return outermost === -1 ? undefined : posix.slice(outermost + 1);
+}
+
+/**
  * Normalize a template path as written in a PHP render call or a Twig include
  * into the relative form used in the template index. Strips a leading Twig
  * root segment if present, e.g. "views/page-home.twig" -> "page-home.twig"
