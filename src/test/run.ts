@@ -15,6 +15,14 @@ import {
   resolveIncludePath,
 } from '../services/templateResolver';
 import { scaffoldBlockTemplate } from '../services/blockScaffold';
+import {
+  applyStructure,
+  findLayout,
+  formatStructure,
+  matchesLayout,
+  parseStructure,
+  stringifyAcfJson,
+} from '../services/fieldStructure';
 import { AcfLayout } from '../models/acf';
 import { TypeShape } from '../models/context';
 
@@ -362,7 +370,16 @@ test('scaffold renders markup per ACF type under the block variable', () => {
   assert.strictEqual(
     scaffoldBlockTemplate(FEATURES_LAYOUT, 'page_builder', 'block'),
     [
-      '{# Flexible content layout "feature_list" (Feature list) from "page_builder". `block` is the current row. #}',
+      '{# acf-fields: page_builder / feature_list "Feature list"',
+      '  heading: text "Heading"',
+      '  intro: textarea "Intro"',
+      '  button: link "Button"',
+      '  show_border: true_false "Show border"',
+      '  features: repeater "Features"',
+      '    title: text "Title"',
+      '    icon: image "Icon"',
+      '  map: google_map "Map"',
+      'end-acf-fields #}',
       '<div class="block block--feature-list">',
       '  {% if block.heading %}',
       '    <h2 class="block__heading">{{ block.heading }}</h2>',
@@ -404,6 +421,80 @@ test('scaffold uses the detected loop variable and avoids shadowing it', () => {
   const out = scaffoldBlockTemplate(layout, 'builder', 'section');
   assert.ok(out.includes('{% for section2 in section.sections %}'), out);
   assert.ok(out.includes('{{ section2.body }}'), out);
+});
+
+console.log('\nEditable field structure');
+const STRUCT_DOC = [
+  '{# acf-fields: page_builder / hero_block "Hero"',
+  '  tagline: text "Tagline"',
+  '  image: image',
+  '  items: repeater "Items"',
+  '    title: text',
+  'end-acf-fields #}',
+  '<div>{{ block.tagline }}</div>',
+].join('\n');
+test('structure parses header, fields, labels and nesting', () => {
+  const { block, errors } = parseStructure(STRUCT_DOC);
+  assert.deepStrictEqual(errors, []);
+  assert.strictEqual(block!.owner, 'page_builder');
+  assert.strictEqual(block!.layoutName, 'hero_block');
+  assert.strictEqual(block!.layoutLabel, 'Hero');
+  assert.deepStrictEqual(
+    block!.fields.map((f) => [f.name, f.type, f.label, f.children.map((c) => c.name)]),
+    [['tagline', 'text', 'Tagline', []], ['image', 'image', undefined, []], ['items', 'repeater', 'Items', ['title']]]
+  );
+  assert.strictEqual(STRUCT_DOC.slice(block!.end), '\n<div>{{ block.tagline }}</div>');
+});
+test('structure reports unknown types, bad nesting and duplicates by line', () => {
+  const { errors } = parseStructure(
+    ['{# acf-fields: pb / x', '  a: txt', '  b: text', '    c: text', '  b: image', 'end-acf-fields #}'].join('\n')
+  );
+  assert.deepStrictEqual(errors.map((e) => e.line), [1, 3, 4]);
+});
+test('generated structure matches its layout; an edit does not', () => {
+  const layout = acf.flexibleLayouts[0].layout;
+  const text = formatStructure('page_builder', layout.name, layout.label, layout.subFields);
+  assert.strictEqual(text, '{# acf-fields: page_builder / hero_block "Hero"\n  tagline: text "Tagline"\nend-acf-fields #}');
+  assert.ok(matchesLayout(parseStructure(text).block!, layout.label, layout.subFields));
+  const edited = text.replace('tagline: text', 'tagline: textarea');
+  assert.ok(!matchesLayout(parseStructure(edited).block!, layout.label, layout.subFields));
+});
+test('applying keeps existing field settings and adds new fields with keys', () => {
+  const data = JSON.parse(ACF_JSON);
+  data.fields[3].layouts.layout_a.sub_fields[0].instructions = 'keep me';
+  const loc = findLayout(data, 'page_builder', 'hero_block');
+  assert.strictEqual(loc.length, 1);
+  let n = 0;
+  const report = applyStructure(loc[0], parseStructure(STRUCT_DOC).block!, (p) => `${p}k${++n}`);
+  assert.deepStrictEqual(report, { added: ['image', 'items', 'items.title'], removed: [], retyped: [] });
+  const subs = data.fields[3].layouts.layout_a.sub_fields;
+  assert.strictEqual(subs[0].key, 'field_11');
+  assert.strictEqual(subs[0].instructions, 'keep me');
+  assert.strictEqual(subs[1].label, 'Image');
+  assert.strictEqual(subs[1].return_format, 'array');
+  assert.strictEqual(subs[2].sub_fields[0].parent_repeater, subs[2].key);
+  assert.ok(typeof data.modified === 'number');
+});
+test('applying reports removed and retyped fields', () => {
+  const data = JSON.parse(ACF_JSON);
+  const doc = '{# acf-fields: page_builder / hero_block\n  subtitle: text\nend-acf-fields #}';
+  const report = applyStructure(findLayout(data, 'page_builder', 'hero_block')[0], parseStructure(doc).block!);
+  assert.deepStrictEqual(report.removed, ['tagline']);
+  assert.deepStrictEqual(report.added, ['subtitle']);
+});
+test('applying a new layout name creates the layout', () => {
+  const data = JSON.parse(ACF_JSON);
+  const doc = '{# acf-fields: page_builder / quote "Quote"\n  text: textarea\nend-acf-fields #}';
+  const loc = findLayout(data, 'page_builder', 'quote')[0];
+  assert.strictEqual(loc.layout, undefined);
+  applyStructure(loc, parseStructure(doc).block!);
+  const layouts = Object.values(data.fields[3].layouts) as { name: string; sub_fields: unknown[] }[];
+  assert.deepStrictEqual(layouts.map((l) => l.name), ['hero_block', 'quote']);
+  assert.strictEqual(layouts[1].sub_fields.length, 1);
+});
+test('ACF JSON round-trips with the original indentation', () => {
+  const original = JSON.stringify(JSON.parse(ACF_JSON), null, 4) + '\n';
+  assert.strictEqual(stringifyAcfJson(JSON.parse(original), original), original);
 });
 
 console.log(`\n${passed} checks passed.`);

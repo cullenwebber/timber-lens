@@ -6,6 +6,7 @@ import { TwigDiagnosticsProvider } from './providers/twigDiagnosticsProvider';
 import { TwigDefinitionProvider } from './providers/twigDefinitionProvider';
 import { TemplateContextView } from './views/templateContextView';
 import { createBlockTemplate } from './commands/createBlockTemplate';
+import { FieldStructureProvider } from './providers/fieldStructureProvider';
 
 const TWIG_SELECTOR: vscode.DocumentSelector = [
   { language: 'twig' },
@@ -51,6 +52,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // Explorer view showing the active template's context.
   new TemplateContextView(index).register(context);
+
+  // Editable ACF field structure comment in block templates.
+  new FieldStructureProvider(index).register(context, TWIG_SELECTOR);
 
   // Scaffold a block template from a flexible content layout.
   context.subscriptions.push(

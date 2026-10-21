@@ -204,15 +204,21 @@ export class ProjectIndex {
 
   private async rebuildAcf(): Promise<number> {
     const contents: string[] = [];
-    for (const dir of this.settings.acfJsonPaths) {
-      const pattern = `**/${trimSlashes(dir)}/**/*.json`;
-      const files = await vscode.workspace.findFiles(pattern, '**/node_modules/**');
-      for (const file of files) {
-        contents.push(await readFile(file));
-      }
+    for (const file of await this.acfJsonFiles()) {
+      contents.push(await readFile(file));
     }
     this.acf = buildAcfIndex(contents);
     return contents.length;
+  }
+
+  /** Every ACF Local JSON file under the configured acfJsonPaths. */
+  async acfJsonFiles(): Promise<vscode.Uri[]> {
+    const files: vscode.Uri[] = [];
+    for (const dir of this.settings.acfJsonPaths) {
+      const pattern = `**/${trimSlashes(dir)}/**/*.json`;
+      files.push(...(await vscode.workspace.findFiles(pattern, '**/node_modules/**')));
+    }
+    return files;
   }
 
   private async rebuildTwig(): Promise<void> {

@@ -1,4 +1,5 @@
 import { AcfField, AcfLayout } from '../models/acf';
+import { formatStructure } from './fieldStructure';
 
 const STRING_TYPES = new Set([
   'text',
@@ -17,9 +18,10 @@ const HEADING_NAME = /(^|_)(heading|headline|title)$/;
 const IDENT = /^[A-Za-z_]\w*$/;
 
 /**
- * Generate a starter Twig template for a flexible_content layout: markup for
- * each sub field chosen by its ACF type, read from `varName` (the loop variable
- * the parent template passes rows in as, e.g. `block`).
+ * Generate a starter Twig template for a flexible_content layout: the editable
+ * acf-fields structure, then markup for each sub field chosen by its ACF type,
+ * read from `varName` (the loop variable the parent template passes rows in
+ * as, e.g. `block`).
  */
 export function scaffoldBlockTemplate(
   layout: AcfLayout,
@@ -27,11 +29,7 @@ export function scaffoldBlockTemplate(
   varName: string
 ): string {
   const w = new Writer();
-  const label = layout.label ? ` (${commentSafe(layout.label)})` : '';
-  w.line(
-    `{# Flexible content layout "${layout.name}"${label} from "${ownerField}". ` +
-      `\`${varName}\` is the current row. #}`
-  );
+  w.line(formatStructure(ownerField, layout.name, layout.label, layout.subFields));
   w.line(`<div class="block block--${cssName(layout.name)}">`);
   w.indent(() => {
     if (layout.subFields.length === 0) {

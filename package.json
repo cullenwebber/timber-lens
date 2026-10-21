@@ -53,6 +53,18 @@
         "command": "timberLens.createBlockTemplate",
         "title": "Timber Lens: Create Block Template from ACF Layout",
         "icon": "$(new-file)"
+      },
+      {
+        "command": "timberLens.insertFieldStructure",
+        "title": "Timber Lens: Insert ACF Field Structure"
+      },
+      {
+        "command": "timberLens.applyFieldStructure",
+        "title": "Timber Lens: Apply Field Structure to ACF JSON"
+      },
+      {
+        "command": "timberLens.regenerateFieldStructure",
+        "title": "Timber Lens: Regenerate Field Structure from ACF JSON"
       }
     ],
     "views": {
@@ -75,6 +87,20 @@
           "command": "timberLens.reindex",
           "when": "view == timberLens.templateContext",
           "group": "navigation@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "timberLens.insertFieldStructure",
+          "when": "resourceExtname == .twig"
+        },
+        {
+          "command": "timberLens.applyFieldStructure",
+          "when": "resourceExtname == .twig"
+        },
+        {
+          "command": "timberLens.regenerateFieldStructure",
+          "when": "resourceExtname == .twig"
         }
       ]
     },

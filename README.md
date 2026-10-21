@@ -82,6 +82,36 @@ text, links, images, repeater loops and so on, read from the loop variable
 your templates already use (`block` by default). Layouts that already have a
 template open it instead.
 
+### 9. Editable ACF field structure
+Block templates start with a Twig comment describing their layout's fields,
+generated from ACF JSON (new block templates get it automatically; use the
+**Insert ACF field structure** CodeLens on older ones):
+
+```twig
+{# acf-fields: page_builder / hero "Hero"
+  heading: text "Heading"
+  image: image "Image"
+  items: repeater "Items"
+    title: text "Title"
+end-acf-fields #}
+```
+
+Each line is `name: type "Label"` (the label is optional); indent sub fields
+under a `group` or `repeater`. Edit it, then use the CodeLens above it:
+
+- **Apply to ACF JSON** writes the changes into the layout in your ACF JSON.
+  Existing fields keep their keys and settings (instructions, return format,
+  choices, ...); new fields get fresh keys. Fields are matched by name, so a
+  rename is a remove + add, and anything removed or re-typed asks first. The
+  field group's `modified` time is bumped so WordPress offers to sync it under
+  ACF → Field Groups.
+- **Regenerate from ACF JSON** discards your edits and rewrites the comment.
+- Writing a structure for a layout that does not exist yet (e.g. in a new
+  `blocks/quote.twig`) shows **Create layout "quote" in ACF JSON**.
+
+Lines that cannot be applied (unknown types, bad indentation, duplicates) are
+underlined as errors.
+
 ### Nice-to-haves
 - Cmd/Ctrl-click a Twig include path to open the file.
 - Fallback built-in Timber globals: `post`, `site`, `user`, `menu`.

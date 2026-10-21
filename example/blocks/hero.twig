@@ -1,4 +1,7 @@
-{# Flexible content "hero" layout. `block` is the current flex row. #}
+{# acf-fields: page_builder / hero "Hero"
+  heading: text "Heading"
+  image: image "Image"
+end-acf-fields #}
 <div class="block block--hero">
   <h2>{{ block.heading }}</h2>
   {% if block.image %}
