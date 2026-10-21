@@ -9,6 +9,7 @@ import {
   suggestFields,
   suggestLabels,
 } from '../services/fieldStructureCompletion';
+import { SETTINGS } from '../services/fieldSettings';
 import { baseName } from '../utils/paths';
 
 /**
@@ -47,7 +48,45 @@ export class FieldStructureCompletionProvider implements vscode.CompletionItemPr
         return this.types(cursor, range(cursor.prefix.length));
       case 'label':
         return this.labels(cursor, range(cursor.prefix.length, cursor.closingQuote ? 1 : 0));
+      case 'setting':
+        return this.settings(cursor, range(cursor.prefix.length));
+      case 'settingValue':
+        return this.settingValues(cursor, range(cursor.prefix.length));
     }
+  }
+
+  // ---- [settings] -----------------------------------------------------------
+
+  private settings(cursor: Extract<StructureCursor, { kind: 'setting' }>, range: vscode.Range): vscode.CompletionItem[] {
+    return SETTINGS.filter(
+      (s) => (!s.types || s.types.includes(cursor.fieldType)) && !cursor.written.includes(s.name)
+    ).map((s, i) => {
+      const item = new vscode.CompletionItem(s.name, vscode.CompletionItemKind.Property);
+      item.range = range;
+      item.sortText = String(i).padStart(3, '0');
+      if (s.flag) {
+        item.detail = 'on; write "' + s.name + ': no" to turn it off';
+      } else {
+        item.insertText = `${s.name}: `;
+        item.command = { title: 'Suggest values', command: 'editor.action.triggerSuggest' };
+        const values = s.values?.(cursor.fieldType);
+        item.detail = values ? values.join(' | ') : 'value';
+      }
+      return item;
+    });
+  }
+
+  private settingValues(
+    cursor: Extract<StructureCursor, { kind: 'settingValue' }>,
+    range: vscode.Range
+  ): vscode.CompletionItem[] {
+    const spec = SETTINGS.find((s) => s.name === cursor.setting);
+    const values = spec?.flag ? ['yes', 'no'] : spec?.values?.(cursor.fieldType) ?? [];
+    return values.map((v) => {
+      const item = new vscode.CompletionItem(v, vscode.CompletionItemKind.EnumMember);
+      item.range = range;
+      return item;
+    });
   }
 
   // ---- header -------------------------------------------------------------

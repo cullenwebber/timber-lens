@@ -27,6 +27,14 @@ export type StructureCursor =
       hasLabel: boolean;
     }
   | {
+      kind: 'setting';
+      prefix: string;
+      fieldType: string;
+      /** Settings already written in the brackets. */
+      written: string[];
+    }
+  | { kind: 'settingValue'; prefix: string; fieldType: string; setting: string }
+  | {
       kind: 'label';
       /** The typed label so far, including any opening quote. */
       prefix: string;
@@ -110,6 +118,19 @@ export function structureCursorAt(text: string, offset: number): StructureCursor
       needsSpace: type[2] === '',
       hasLabel: after.includes('"'),
     };
+  }
+  // Inside an unclosed `[ … ]`: a setting name, or its value after `name:`.
+  const settings = /^\s*[A-Za-z0-9_-]+\s*:\s*([a-z_]+)\b[^[]*\[([^\]"]*)$/.exec(before);
+  if (settings) {
+    const items = settings[2].split(',');
+    const current = items.pop()!;
+    const written = items.map((i) => i.split(':')[0].trim());
+    const value = /^\s*(\w+)\s*:\s*(\w*)$/.exec(current);
+    if (value) {
+      return { kind: 'settingValue', prefix: value[2], fieldType: settings[1], setting: value[1] };
+    }
+    const name = /^\s*(\w*)$/.exec(current);
+    return name ? { kind: 'setting', prefix: name[1], fieldType: settings[1], written } : undefined;
   }
   const label = /^\s*([A-Za-z0-9_-]+)\s*:\s*[a-z_]+\s+("?[^"]*)$/.exec(before);
   if (label) {

@@ -45,6 +45,7 @@ import { parseGlobalContext, parseTwigExtensions } from '../parsers/phpTwigExten
 import { phpValueToShape } from '../indexers/phpContextIndexer';
 import { checkMemberAccess, shapeOfExpr, unusedStructureFields } from '../services/twigChecks';
 import { entryRemovalRange, passThroughInsert } from '../parsers/twigTemplateParser';
+import { parseExtras } from '../services/fieldSettings';
 import { newTemplatePath } from '../services/templateResolver';
 import { pathLiterals, referenceEdits, TextEdit } from '../services/templateMoves';
 import { AcfLayout } from '../models/acf';
@@ -1105,6 +1106,129 @@ test('moving a template out of every Twig root reports it', () => {
     MOVE_ROOTS
   );
   assert.deepStrictEqual(result, { edits: [], stranded: ['partials/button.twig'] });
+});
+
+// ---- Choices and settings in the field structure ---------------------------
+
+const SETTINGS_JSON = JSON.stringify({
+  key: 'group_pb',
+  title: 'Page builder',
+  fields: [
+    {
+      key: 'field_pb',
+      name: 'page_builder',
+      type: 'flexible_content',
+      layouts: {
+        l1: {
+          name: 'banner',
+          label: 'Banner',
+          sub_fields: [
+            { key: 'field_s1', name: 'style', label: 'Style', type: 'select', choices: { light: 'light', dark: 'Dark mode' }, return_format: 'value', required: 1, instructions: 'Pick one' },
+            { key: 'field_s2', name: 'image', label: 'Image', type: 'image', return_format: 'array', required: 0 },
+            { key: 'field_s3', name: 'cards', label: 'Cards', type: 'repeater', layout: 'table', min: 0, max: 4, sub_fields: [] },
+          ],
+        },
+      },
+    },
+  ],
+});
+
+test('structure lines parse choices and settings', () => {
+  const doc = [
+    '{# acf-fields: page_builder / banner "Banner"',
+    '  style: select "Style" (light, dark: "Dark mode") [required, default: light]',
+    '  image: image [return: url, required: no]',
+    '  cards: repeater "Cards" [max: 4, layout: block]',
+    '    title: text',
+    'end-acf-fields #}',
+  ].join('\n');
+  const { block, errors } = parseStructure(doc);
+  assert.deepStrictEqual(errors, []);
+  const [style, image, cards] = block!.fields;
+  assert.deepStrictEqual(style.choices, [['light', 'light'], ['dark', 'Dark mode']]);
+  assert.deepStrictEqual(style.settings, { required: 'true', default: 'light' });
+  assert.deepStrictEqual(image.settings, { return: 'url', required: 'false' });
+  assert.deepStrictEqual(cards.settings, { max: '4', layout: 'block' });
+  assert.deepStrictEqual(cards.children.map((c) => c.name), ['title']);
+});
+test('bad choices and settings are reported on their line', () => {
+  const errs = (rest: string, type: string) => parseExtras(rest, type).error;
+  assert.ok(errs('(a, b)', 'text')?.includes('no choices'));
+  assert.ok(errs('[colour: red]', 'text')?.includes('Unknown setting'));
+  assert.ok(errs('[return: url]', 'text')?.includes('not a setting of a text'));
+  assert.ok(errs('[return: thumb]', 'image')?.includes('one of array, url, id'));
+  assert.ok(errs('[min: lots]', 'repeater')?.includes('number'));
+  assert.ok(errs('[required: maybe]', 'text')?.includes('on or off'));
+  assert.ok(errs('[required] (a)', 'select')?.includes('Expected'));
+  assert.ok(errs('(a, a)', 'select')?.includes('Duplicate choice'));
+  const doc = '{# acf-fields: pb / x\n  style: text "Style" [return: url]\nend-acf-fields #}';
+  assert.deepStrictEqual(parseStructure(doc).errors.map((e) => e.line), [1]);
+});
+test('generated structure shows choices and non-default settings', () => {
+  const acf = buildAcfIndex([SETTINGS_JSON]);
+  const layout = acf.flexibleLayouts[0].layout;
+  assert.strictEqual(
+    formatStructure('page_builder', 'banner', 'Banner', layout.subFields),
+    [
+      '{# acf-fields: page_builder / banner "Banner"',
+      '  style: select "Style" (light, dark: "Dark mode") [required, instructions: "Pick one"]',
+      '  image: image "Image"',
+      '  cards: repeater "Cards" [max: 4]',
+      'end-acf-fields #}',
+    ].join('\n')
+  );
+  // And it reads back as the same thing.
+  const round = parseStructure(formatStructure('page_builder', 'banner', 'Banner', layout.subFields));
+  assert.deepStrictEqual(round.errors, []);
+  assert.ok(matchesLayout(round.block!, 'Banner', layout.subFields));
+});
+test('settings left out of the structure keep ACF and still match', () => {
+  const acf = buildAcfIndex([SETTINGS_JSON]);
+  const layout = acf.flexibleLayouts[0].layout;
+  const doc = '{# acf-fields: page_builder / banner "Banner"\n  style: select "Style"\n  image: image "Image"\n  cards: repeater "Cards"\nend-acf-fields #}';
+  assert.ok(matchesLayout(parseStructure(doc).block!, 'Banner', layout.subFields));
+  const changed = doc.replace('image: image "Image"', 'image: image "Image" [required]');
+  assert.ok(!matchesLayout(parseStructure(changed).block!, 'Banner', layout.subFields));
+});
+test('applying writes choices and settings and keeps the rest', () => {
+  const data = JSON.parse(SETTINGS_JSON);
+  const doc = [
+    '{# acf-fields: page_builder / banner "Banner"',
+    '  style: select "Style" (light, dark: Dark, brand: "Brand colour") [required: no]',
+    '  image: image "Image" [return: url]',
+    '  cards: repeater "Cards" [min: 1]',
+    '  theme: radio "Theme" (a, b) [default: a]',
+    'end-acf-fields #}',
+  ].join('\n');
+  applyStructure(findLayout(data, 'page_builder', 'banner')[0], parseStructure(doc).block!);
+  const [style, image, cards, theme] = data.fields[0].layouts.l1.sub_fields;
+  assert.deepStrictEqual(style.choices, { light: 'light', dark: 'Dark', brand: 'Brand colour' });
+  assert.strictEqual(style.required, 0);
+  assert.strictEqual(style.instructions, 'Pick one');
+  assert.strictEqual(image.return_format, 'url');
+  assert.strictEqual(cards.min, 1);
+  assert.strictEqual(cards.max, 4);
+  assert.deepStrictEqual(theme.choices, { a: 'a', b: 'b' });
+  assert.strictEqual(theme.default_value, 'a');
+});
+test('a written return format shapes the field before it is applied', () => {
+  const acf = buildAcfIndex([SETTINGS_JSON]);
+  const layout = acf.flexibleLayouts[0].layout;
+  const doc = '{# acf-fields: page_builder / banner\n  image: image [return: url]\nend-acf-fields #}';
+  const [image] = structToAcfFieldsWithSettings(parseStructure(doc).block!.fields, layout.subFields);
+  assert.strictEqual(acfFieldToShape(image).kind, 'string');
+});
+test('setting completion inside the brackets', () => {
+  const doc = '{# acf-fields: pb / x\n  image: image "Image" [required, re\nend-acf-fields #}';
+  const at = doc.indexOf('re\n') + 2;
+  assert.deepStrictEqual(structureCursorAt(doc, at), { kind: 'setting', prefix: 're', fieldType: 'image', written: ['required'] });
+  const doc2 = '{# acf-fields: pb / x\n  image: image "Image" [return: u\nend-acf-fields #}';
+  assert.deepStrictEqual(structureCursorAt(doc2, doc2.indexOf(': u') + 3), {
+    kind: 'settingValue',
+    prefix: 'u',
+    fieldType: 'image',
+    setting: 'return',
+  });
 });
 
 console.log(`\n${passed} checks passed.`);

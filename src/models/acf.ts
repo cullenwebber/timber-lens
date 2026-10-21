@@ -25,6 +25,10 @@ export interface AcfField {
   subFields?: AcfField[];
   /** Layouts for flexible_content fields. */
   layouts?: AcfLayout[];
+  /** Choices of select / checkbox / radio / button_group fields, as [value, label]. */
+  choices?: [string, string][];
+  /** Settings the field structure shows (required, return, min, ...), as written there. */
+  settings?: Record<string, string>;
   /** Clone fields: the field and field group keys they clone. */
   clone?: string[];
   /** Clone fields: `seamless` (fields sit beside the clone) or `group` (a group under its name). */

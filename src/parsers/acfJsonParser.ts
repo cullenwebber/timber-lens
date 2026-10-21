@@ -1,4 +1,5 @@
 import { AcfField, AcfFieldGroup, AcfLayout } from '../models/acf';
+import { readChoices, readSettings } from '../services/fieldSettings';
 
 /**
  * Parse the contents of a single ACF Local JSON file into a normalized field
@@ -77,6 +78,11 @@ function normalizeField(
   }
   if (typeof obj.field_type === 'string') {
     field.fieldType = obj.field_type;
+  }
+  field.settings = readSettings(obj, type);
+  const choices = readChoices(obj, type);
+  if (choices) {
+    field.choices = choices;
   }
   if (type === 'clone' && Array.isArray(obj.clone)) {
     field.clone = obj.clone.filter((k): k is string => typeof k === 'string');

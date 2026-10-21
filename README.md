@@ -143,7 +143,28 @@ end-acf-fields #}
 ```
 
 Each line is `name: type "Label"` (the label is optional); indent sub fields
-under a `group` or `repeater`. Edit it, then use the CodeLens above it:
+under a `group` or `repeater`, with spaces or tabs.
+
+After the label, a line can list **choices** in `( … )` and **settings** in
+`[ … ]`:
+
+```twig
+  style: select "Style" (light, dark: "Dark mode") [required, default: light]
+  image: image "Image" [return: url]
+  cards: repeater "Cards" [min: 1, max: 4, layout: block]
+```
+
+- Choices are `value` or `value: Label`, for select, checkbox, radio and
+  button_group fields. Written choices replace the field's choices in ACF.
+- Settings are `required`, `return`, `multiple`, `min`, `max`, `default`,
+  `layout`, `ui` and `instructions`, where they apply to the field's type.
+  On/off settings are written bare to turn them on, or as `required: no`.
+  Completion inside `[` lists the settings and their values.
+- Choices and settings left out keep what ACF JSON has, so they are optional.
+  Generated structures show the choices and every setting that is not ACF's
+  default.
+- Quote values with spaces, commas or brackets: `instructions: "Max 60 characters"`.
+- A written `return` format shapes the field in the template straight away. Edit it, then use the CodeLens above it:
 
 - **Apply to ACF JSON** writes the changes into the layout in your ACF JSON.
   Existing fields keep their keys and settings (instructions, return format,

@@ -12,12 +12,17 @@
 
 import { randomBytes } from 'crypto';
 import { AcfField } from '../models/acf';
+import { Choice, formatExtras, parseExtras, writeSettings } from './fieldSettings';
 
 /** One line of the structure: a field and, for groups/repeaters, its children. */
 export interface StructField {
   name: string;
   type: string;
   label?: string;
+  /** `( … )` choices, when written; they replace ACF's. */
+  choices?: Choice[];
+  /** `[ … ]` settings, when written; settings left out keep ACF's. */
+  settings?: Record<string, string>;
   children: StructField[];
   /** 0-based line within the document, for diagnostics. */
   line: number;
@@ -62,7 +67,7 @@ export const CONTAINER_TYPES = new Set(['group', 'repeater']);
 export const HEADER_RE = /\{#-?[ \t]*acf-fields:[ \t]*(.*)$/m;
 const HEADER_BODY_RE = /^([\w-]+)\s*\/\s*([\w-]+)(?:\s+"([^"]*)")?\s*$/;
 export const END_RE = /^[ \t]*end-acf-fields[ \t]*-?#\}/m;
-const FIELD_RE = /^(\s*)([A-Za-z0-9_-]+)\s*:\s*([a-z_]+)(?:\s+"([^"]*)")?\s*$/;
+const FIELD_RE = /^(\s*)([A-Za-z0-9_-]+)\s*:\s*([a-z_]+)(?:\s+"([^"]*)")?(\s*(?:[([].*)?)$/;
 export const INDENT = '  ';
 
 /**
@@ -100,7 +105,10 @@ export function formatStructure(
 export function formatFieldLines(fields: AcfField[], depth: number): string[] {
   const lines: string[] = [];
   for (const f of fields) {
-    lines.push(`${INDENT.repeat(depth)}${f.name}: ${f.type} "${f.label ?? humanize(f.name)}"`);
+    lines.push(
+      `${INDENT.repeat(depth)}${f.name}: ${f.type} "${f.label ?? humanize(f.name)}"` +
+        formatExtras(f.type, f.settings, f.choices)
+    );
     if (CONTAINER_TYPES.has(f.type)) {
       lines.push(...formatFieldLines(f.subFields ?? [], depth + 1));
     }
@@ -114,6 +122,8 @@ export function structToAcfFields(fields: StructField[]): AcfField[] {
     name: f.name,
     type: f.type,
     label: f.label ?? humanize(f.name),
+    choices: f.choices,
+    settings: f.settings,
     subFields: structToAcfFields(f.children),
   }));
 }
@@ -126,11 +136,17 @@ export function structToAcfFields(fields: StructField[]): AcfField[] {
 export function structToAcfFieldsWithSettings(fields: StructField[], acfFields: AcfField[]): AcfField[] {
   return fields.map((f) => {
     const acf = acfFields.find((a) => a.name === f.name && a.type === f.type);
+    const written = f.settings ?? {};
     return {
       ...(acf ?? {}),
       name: f.name,
       type: f.type,
       label: f.label ?? humanize(f.name),
+      choices: f.choices ?? acf?.choices,
+      settings: { ...acf?.settings, ...written },
+      // Written settings that change the value's shape apply before the structure is.
+      returnFormat: written.return ?? acf?.returnFormat,
+      multiple: written.multiple !== undefined ? written.multiple === 'true' : acf?.multiple,
       subFields: structToAcfFieldsWithSettings(f.children, acf?.subFields ?? []),
     };
   });
@@ -148,7 +164,29 @@ export function matchesLayout(
     block.layoutLabel ?? humanize(block.layoutName),
     structToAcfFields(block.fields)
   );
-  return parsed === formatStructure(block.owner, block.layoutName, layoutLabel, fields);
+  return parsed === formatStructure(block.owner, block.layoutName, layoutLabel, writtenOnly(fields, block.fields));
+}
+
+/**
+ * ACF fields with only the choices and settings the structure writes, since
+ * the rest are kept as they are when it is applied.
+ */
+function writtenOnly(fields: AcfField[], struct: StructField[]): AcfField[] {
+  return fields.map((a) => {
+    const s = struct.find((f) => f.name === a.name);
+    const settings: Record<string, string> = {};
+    for (const name of Object.keys(s?.settings ?? {})) {
+      if (a.settings?.[name] !== undefined) {
+        settings[name] = a.settings[name];
+      }
+    }
+    return {
+      ...a,
+      choices: s?.choices ? a.choices ?? [] : undefined,
+      settings,
+      subFields: writtenOnly(a.subFields ?? [], s?.children ?? []),
+    };
+  });
 }
 
 /** "hero_heading" -> "Hero Heading". */
@@ -210,6 +248,13 @@ export function parseStructure(text: string): { block?: StructureBlock; errors: 
     const field: StructField = { name: m[2], type: m[3], label: m[4], children: [], line };
     if (!ACF_TYPES.has(field.type)) {
       errors.push({ line, message: `Unknown ACF field type "${field.type}".` });
+    } else if (m[5].trim() !== '') {
+      const extras = parseExtras(m[5], field.type);
+      if (extras.error) {
+        errors.push({ line, message: extras.error });
+      }
+      field.choices = extras.choices;
+      field.settings = extras.settings;
     }
     baseIndent ??= indent;
 
@@ -417,6 +462,7 @@ function applyFields(
     }
     // An omitted label means the default, as when comparing with ACF.
     raw.label = f.label ?? humanize(f.name);
+    writeSettings(raw, f.type, f.settings, f.choices);
 
     if (CONTAINER_TYPES.has(f.type)) {
       raw.sub_fields = applyFields(
