@@ -33,7 +33,12 @@ export function buildPhpContexts(
         shape.source = source;
         vars.set(key, shape);
       });
-      contexts.push({ templatePath: ctx.templatePath, sourceFile: source, vars });
+      contexts.push({
+        templatePath: ctx.templatePath,
+        sourceFile: source,
+        sourcePath: file.fsPath,
+        vars,
+      });
     }
   }
   return contexts;

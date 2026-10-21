@@ -33,7 +33,8 @@ export function includeCandidates(
 /**
  * Find the PHP-provided context for a Twig document. A render path matches a
  * template when one of its path variants equals one of the template's relPaths,
- * or when the document's absolute path ends with the render path.
+ * or when the document's absolute path ends with the render path. When several
+ * PHP files render the template, the first match is the one used.
  */
 export function findContextForTwig(
   fsPath: string,
@@ -41,19 +42,24 @@ export function findContextForTwig(
   contexts: TemplateContext[],
   twigRoots: string[]
 ): TemplateContext | undefined {
+  return findContextsForTwig(fsPath, template, contexts, twigRoots)[0];
+}
+
+/** Every PHP render context that targets the Twig document, in index order. */
+export function findContextsForTwig(
+  fsPath: string,
+  template: TwigTemplate | undefined,
+  contexts: TemplateContext[],
+  twigRoots: string[]
+): TemplateContext[] {
   const docPosix = toPosix(fsPath);
 
-  for (const ctx of contexts) {
+  return contexts.filter((ctx) => {
     const variants = renderPathVariants(ctx.templatePath, twigRoots);
-
-    // Match against the absolute path suffix.
-    if (variants.some((v) => docPosix.endsWith('/' + v) || docPosix.endsWith(v))) {
-      return ctx;
-    }
-    // Match against the template's known relPaths.
-    if (template && template.relPaths.some((rel) => variants.includes(rel))) {
-      return ctx;
-    }
-  }
-  return undefined;
+    // Match against the absolute path suffix, or the template's known relPaths.
+    return (
+      variants.some((v) => docPosix.endsWith('/' + v) || docPosix.endsWith(v)) ||
+      (template !== undefined && template.relPaths.some((rel) => variants.includes(rel)))
+    );
+  });
 }

@@ -1,4 +1,4 @@
-import { AcfField, AcfFieldGroup } from '../models/acf';
+import { AcfField, AcfFieldGroup, AcfLayout } from '../models/acf';
 import {
   TypeShape,
   arrayShape,
@@ -19,6 +19,8 @@ export class AcfIndex {
   private readonly layoutSubFields = new Map<string, AcfField[]>();
   /** Every field name, including nested sub fields. */
   readonly allNames = new Set<string>();
+  /** Every flexible_content layout, with the field that owns it. */
+  readonly flexibleLayouts: { field: AcfField; layout: AcfLayout }[] = [];
 
   constructor(groups: AcfFieldGroup[]) {
     for (const group of groups) {
@@ -36,6 +38,7 @@ export class AcfIndex {
     this.allNames.add(field.name);
     field.subFields?.forEach((sf) => this.register(sf));
     field.layouts?.forEach((l) => {
+      this.flexibleLayouts.push({ field, layout: l });
       if (!this.layoutSubFields.has(l.name)) {
         this.layoutSubFields.set(l.name, l.subFields);
       }

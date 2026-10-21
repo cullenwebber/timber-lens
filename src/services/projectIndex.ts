@@ -7,7 +7,7 @@ import { buildPhpContexts, PhpFileInput } from '../indexers/phpContextIndexer';
 import { TemplateContext, TwigTemplate } from '../models/template';
 import { TypeShape } from '../models/context';
 import { ContextResolver } from './contextResolver';
-import { findContextForTwig, resolveIncludePath } from './templateResolver';
+import { findContextForTwig, findContextsForTwig, resolveIncludePath } from './templateResolver';
 import { baseName, toPosix } from '../utils/paths';
 
 /**
@@ -21,6 +21,8 @@ export class ProjectIndex {
   private settings: TimberLensSettings = getSettings();
   /** Loop variable names used to iterate flexible_content (e.g. "block"). */
   private blockVars = new Set<string>(['block']);
+  /** The block loop variable the project's templates actually use. */
+  private mainBlockVar = 'block';
 
   private readonly onDidChangeEmitter = new vscode.EventEmitter<void>();
   readonly onDidChange = this.onDidChangeEmitter.event;
@@ -79,6 +81,35 @@ export class ProjectIndex {
     return this.templates.find((t) => t.fsPath === fsPath);
   }
 
+  /** The loop variable block templates receive their row as, e.g. "block". */
+  get blockVar(): string {
+    return this.mainBlockVar;
+  }
+
+  /** Every PHP render context targeting a Twig document; the first is used. */
+  renderContextsFor(fsPath: string): TemplateContext[] {
+    return findContextsForTwig(
+      fsPath,
+      this.templateFor(fsPath),
+      this.contexts,
+      this.settings.twigRoots
+    );
+  }
+
+  /** The flexible_content layout a block template renders, if it is one. */
+  blockLayoutFor(fsPath: string): string | undefined {
+    if (!toPosix(fsPath).includes('/blocks/')) {
+      return undefined;
+    }
+    const layoutName = baseName(fsPath).replace(/\.twig$/, '');
+    return this.acf.layoutNames.has(layoutName) ? layoutName : undefined;
+  }
+
+  /** The block template for a flexible_content layout, if one exists. */
+  blockTemplateFor(layoutName: string): TwigTemplate | undefined {
+    return this.templates.find((t) => this.blockLayoutFor(t.fsPath) === layoutName);
+  }
+
   /** Resolve an include path string to a template. */
   resolveInclude(relPath: string): TwigTemplate | undefined {
     return resolveIncludePath(relPath, this.templates);
@@ -117,11 +148,8 @@ export class ProjectIndex {
    * shape under each known block loop variable (e.g. `block`).
    */
   private blockContextFor(fsPath: string): Map<string, TypeShape> | undefined {
-    if (!toPosix(fsPath).includes('/blocks/')) {
-      return undefined;
-    }
-    const layoutName = baseName(fsPath).replace(/\.twig$/, '');
-    const row = this.acf.layoutRow(layoutName);
+    const layoutName = this.blockLayoutFor(fsPath);
+    const row = layoutName ? this.acf.layoutRow(layoutName) : undefined;
     if (!row) {
       return undefined;
     }
@@ -204,6 +232,7 @@ export class ProjectIndex {
    */
   private async detectBlockVars(files: vscode.Uri[]): Promise<void> {
     const vars = new Set<string>(['block']);
+    const detected: string[] = [];
     for (const file of files) {
       const content = await readFile(file);
       if (!content.includes('acf_fc_layout')) {
@@ -213,10 +242,12 @@ export class ProjectIndex {
         const name = m[1];
         if (content.includes(`${name}.acf_fc_layout`)) {
           vars.add(name);
+          detected.push(name);
         }
       }
     }
     this.blockVars = vars;
+    this.mainBlockVar = detected[0] ?? 'block';
   }
 
   private async rebuildPhp(): Promise<void> {

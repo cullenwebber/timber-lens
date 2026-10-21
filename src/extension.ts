@@ -4,6 +4,8 @@ import { TwigCompletionProvider } from './providers/twigCompletionProvider';
 import { TwigHoverProvider } from './providers/twigHoverProvider';
 import { TwigDiagnosticsProvider } from './providers/twigDiagnosticsProvider';
 import { TwigDefinitionProvider } from './providers/twigDefinitionProvider';
+import { TemplateContextView } from './views/templateContextView';
+import { createBlockTemplate } from './commands/createBlockTemplate';
 
 const TWIG_SELECTOR: vscode.DocumentSelector = [
   { language: 'twig' },
@@ -47,6 +49,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const diagnostics = new TwigDiagnosticsProvider(index);
   diagnostics.register(context);
 
+  // Explorer view showing the active template's context.
+  new TemplateContextView(index).register(context);
+
+  // Scaffold a block template from a flexible content layout.
+  context.subscriptions.push(
+    vscode.commands.registerCommand('timberLens.createBlockTemplate', () =>
+      createBlockTemplate(index)
+    )
+  );
+
   // Manual reindex command.
   context.subscriptions.push(
     vscode.commands.registerCommand('timberLens.reindex', async () => {
@@ -58,6 +70,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })
   );
 
+  await vscode.commands.executeCommand('setContext', 'timberLens.active', true);
   await index.initialize();
 }
 

@@ -58,6 +58,30 @@ field type and field group where known.
 - Warns on `post.meta('...')` fields not present in any ACF JSON.
 - Dynamic includes using `~` concatenation are never flagged.
 
+### 7. Template Context panel
+The **Timber Context** view in the Explorer follows the active Twig template
+and shows everything Timber Lens knows about it — so a missing or surprising
+completion can be explained at a glance:
+
+- **Context from** — the PHP files that pass this template to
+  `Timber::render()` / `Timber::compile()` (click to jump to the call), the
+  flexible content layout for block templates, or a warning when nothing
+  renders the template.
+- **Variables** — each context variable with its type and source; click to
+  jump to where the PHP sets it, expand to see its fields.
+- **Loop variables** — the `{% for %}` variables in scope at the cursor.
+- **Timber globals** — `post`, `site`, `user`, `menu`.
+
+Run **Timber Lens: Show Template Context** to open it.
+
+### 8. Create block templates from ACF layouts
+**Timber Lens: Create Block Template from ACF Layout** (also the ＋ button on
+the Timber Context view) lists your flexible content layouts and creates
+`blocks/<layout>.twig`, pre-filled with markup for every sub field: headings,
+text, links, images, repeater loops and so on, read from the loop variable
+your templates already use (`block` by default). Layouts that already have a
+template open it instead.
+
 ### Nice-to-haves
 - Cmd/Ctrl-click a Twig include path to open the file.
 - Fallback built-in Timber globals: `post`, `site`, `user`, `menu`.
@@ -70,6 +94,7 @@ field type and field group where known.
 | `timberLens.acfJsonPaths` | `["acf-json"]` |
 | `timberLens.phpScanGlobs` | `["**/*.php"]` |
 | `timberLens.enableBuiltinGlobals` | `true` |
+| `timberLens.assumePostVariables` | `true` |
 
 ## Development
 

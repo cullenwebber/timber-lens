@@ -42,9 +42,42 @@
     "commands": [
       {
         "command": "timberLens.reindex",
-        "title": "Timber Lens: Reindex Workspace"
+        "title": "Timber Lens: Reindex Workspace",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "timberLens.showTemplateContext",
+        "title": "Timber Lens: Show Template Context"
+      },
+      {
+        "command": "timberLens.createBlockTemplate",
+        "title": "Timber Lens: Create Block Template from ACF Layout",
+        "icon": "$(new-file)"
       }
     ],
+    "views": {
+      "explorer": [
+        {
+          "id": "timberLens.templateContext",
+          "name": "Timber Context",
+          "when": "timberLens.active"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "timberLens.createBlockTemplate",
+          "when": "view == timberLens.templateContext",
+          "group": "navigation@1"
+        },
+        {
+          "command": "timberLens.reindex",
+          "when": "view == timberLens.templateContext",
+          "group": "navigation@2"
+        }
+      ]
+    },
     "configuration": {
       "title": "Timber Lens",
       "properties": {

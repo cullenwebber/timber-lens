@@ -49,6 +49,25 @@
             { "key": "field_block_cta_label", "name": "label", "label": "Label", "type": "text" },
             { "key": "field_block_cta_link", "name": "button", "label": "Button", "type": "link" }
           ]
+        },
+        "layout_features": {
+          "key": "layout_features",
+          "name": "features",
+          "label": "Features",
+          "sub_fields": [
+            { "key": "field_block_features_heading", "name": "heading", "label": "Heading", "type": "text" },
+            { "key": "field_block_features_intro", "name": "intro", "label": "Intro", "type": "textarea" },
+            {
+              "key": "field_block_features_items",
+              "name": "items",
+              "label": "Items",
+              "type": "repeater",
+              "sub_fields": [
+                { "key": "field_block_features_item_title", "name": "title", "label": "Title", "type": "text" },
+                { "key": "field_block_features_item_icon", "name": "icon", "label": "Icon", "type": "image" }
+              ]
+            }
+          ]
         }
       }
     }

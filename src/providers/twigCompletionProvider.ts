@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { ProjectIndex } from '../services/projectIndex';
 import { detectCursorContext, findEnclosingLoops } from '../parsers/twigContextParser';
-import { TypeShape } from '../models/context';
+import { TypeShape, describeShape } from '../models/context';
 import { BUILTIN_GLOBALS } from '../services/contextResolver';
 
 export class TwigCompletionProvider implements vscode.CompletionItemProvider {
@@ -174,26 +174,6 @@ function keyCompletion(
     item.documentation = new vscode.MarkdownString(`Field group: **${shape.fieldGroup}**`);
   }
   return item;
-}
-
-function describeShape(shape: TypeShape): string {
-  if (shape.acfType) {
-    return `ACF ${shape.acfType}`;
-  }
-  switch (shape.kind) {
-    case 'array':
-      return 'array';
-    case 'object':
-      return 'object';
-    case 'string':
-      return 'string';
-    case 'number':
-      return 'number';
-    case 'boolean':
-      return 'boolean';
-    default:
-      return 'mixed';
-  }
 }
 
 /** A range covering the already-typed prefix ending at `position`. */

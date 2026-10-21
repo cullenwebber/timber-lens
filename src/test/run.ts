@@ -9,7 +9,13 @@ import {
   detectCursorContext,
   findEnclosingLoops,
 } from '../parsers/twigContextParser';
-import { includeCandidates, resolveIncludePath } from '../services/templateResolver';
+import {
+  findContextsForTwig,
+  includeCandidates,
+  resolveIncludePath,
+} from '../services/templateResolver';
+import { scaffoldBlockTemplate } from '../services/blockScaffold';
+import { AcfLayout } from '../models/acf';
 import { TypeShape } from '../models/context';
 
 let passed = 0;
@@ -311,6 +317,93 @@ test('acf field shape carries acfType and group', () => {
   const shape = acf.shapeByName('hero_heading')!;
   assert.strictEqual(shape.acfType, 'text');
   assert.strictEqual(shape.fieldGroup, 'Home Page');
+});
+
+console.log('\nTemplate context view data');
+test('every PHP file rendering a template is found, with its path', () => {
+  const shared = buildPhpContexts(
+    [
+      { fsPath: '/proj/single.php', content: "<?php Timber::render('single.twig', ['a' => 1]);" },
+      { fsPath: '/proj/archive.php', content: "<?php Timber::render(['single.twig'], ['b' => 2]);" },
+    ],
+    acf
+  );
+  const found = findContextsForTwig('/proj/views/single.twig', undefined, shared, TWIG_ROOTS);
+  assert.deepStrictEqual(found.map((c) => c.sourcePath), ['/proj/single.php', '/proj/archive.php']);
+});
+test('flexible layouts are listed with their owning field', () => {
+  assert.deepStrictEqual(
+    acf.flexibleLayouts.map((l) => `${l.field.name}/${l.layout.name}`),
+    ['page_builder/hero_block']
+  );
+});
+
+console.log('\nBlock template scaffold');
+const FEATURES_LAYOUT: AcfLayout = {
+  name: 'feature_list',
+  label: 'Feature list',
+  subFields: [
+    { name: 'heading', type: 'text' },
+    { name: 'intro', type: 'textarea' },
+    { name: 'button', type: 'link' },
+    { name: 'show_border', type: 'true_false', label: 'Show border' },
+    {
+      name: 'features',
+      type: 'repeater',
+      subFields: [
+        { name: 'title', type: 'text' },
+        { name: 'icon', type: 'image' },
+      ],
+    },
+    { name: 'map', type: 'google_map' },
+  ],
+};
+test('scaffold renders markup per ACF type under the block variable', () => {
+  assert.strictEqual(
+    scaffoldBlockTemplate(FEATURES_LAYOUT, 'page_builder', 'block'),
+    [
+      '{# Flexible content layout "feature_list" (Feature list) from "page_builder". `block` is the current row. #}',
+      '<div class="block block--feature-list">',
+      '  {% if block.heading %}',
+      '    <h2 class="block__heading">{{ block.heading }}</h2>',
+      '  {% endif %}',
+      '  {% if block.intro %}',
+      '    <p class="block__intro">{{ block.intro|nl2br }}</p>',
+      '  {% endif %}',
+      '  {% if block.button %}',
+      '    <a class="block__button" href="{{ block.button.url }}" target="{{ block.button.target }}">{{ block.button.title }}</a>',
+      '  {% endif %}',
+      '  {% if block.show_border %}',
+      '    {# Show border is on #}',
+      '  {% endif %}',
+      '  {% if block.features %}',
+      '    <div class="block__features">',
+      '      {% for feature in block.features %}',
+      '        <div class="block__features-item">',
+      '          {% if feature.title %}',
+      '            <h3 class="block__title">{{ feature.title }}</h3>',
+      '          {% endif %}',
+      '          {% if feature.icon %}',
+      '            <img class="block__icon" src="{{ feature.icon.url }}" alt="{{ feature.icon.alt }}">',
+      '          {% endif %}',
+      '        </div>',
+      '      {% endfor %}',
+      '    </div>',
+      '  {% endif %}',
+      '  {# block.map: ACF google_map #}',
+      '</div>',
+      '',
+    ].join('\n')
+  );
+});
+test('scaffold uses the detected loop variable and avoids shadowing it', () => {
+  const layout: AcfLayout = {
+    name: 'rows',
+    subFields: [{ name: 'sections', type: 'repeater', subFields: [{ name: 'body', type: 'wysiwyg' }] }],
+  };
+  const out = scaffoldBlockTemplate(layout, 'builder', 'section');
+  assert.ok(out.includes('{% for section2 in section.sections %}'), out);
+  assert.ok(out.includes('{{ section2.body }}'), out);
 });
 
 console.log(`\n${passed} checks passed.`);

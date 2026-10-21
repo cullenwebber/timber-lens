@@ -52,3 +52,27 @@ export function stringShape(extra: Partial<TypeShape> = {}): TypeShape {
 export function unknownShape(extra: Partial<TypeShape> = {}): TypeShape {
   return { kind: 'unknown', ...extra };
 }
+
+/** Short type label for completion details and the context view. */
+export function describeShape(shape: TypeShape): string {
+  if (shape.acfType === 'flexible_content_row') {
+    return 'ACF layout row';
+  }
+  if (shape.acfType) {
+    return `ACF ${shape.acfType}`;
+  }
+  switch (shape.kind) {
+    case 'array':
+      return 'array';
+    case 'object':
+      return 'object';
+    case 'string':
+      return 'string';
+    case 'number':
+      return 'number';
+    case 'boolean':
+      return 'boolean';
+    default:
+      return 'mixed';
+  }
+}

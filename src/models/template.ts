@@ -17,6 +17,8 @@ export interface TemplateContext {
   templatePath: string;
   /** Source PHP file basename. */
   sourceFile: string;
+  /** Absolute path of the source PHP file, when the context came from PHP. */
+  sourcePath?: string;
   /** Variable name -> inferred shape. */
   vars: Map<string, TypeShape>;
 }
