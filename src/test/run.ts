@@ -507,6 +507,15 @@ test('unapplied structure fields resolve as the block row', () => {
   const item = resolver.resolveExpr('block.items', new Map());
   assert.ok(item?.item?.keys?.has('title'));
 });
+test('a tab-indented sub field nests under a space-indented repeater', () => {
+  const doc = '{# acf-fields: pb / x\n  content: wysiwyg\n  items: repeater\n\tcontent: text\n\ttitle: text\nend-acf-fields #}';
+  const { block, errors } = parseStructure(doc);
+  assert.deepStrictEqual(errors, []);
+  assert.deepStrictEqual(block!.fields.map((f) => [f.name, f.children.map((c) => c.name)]), [
+    ['content', []],
+    ['items', ['content', 'title']],
+  ]);
+});
 test('structure reports unknown types, bad nesting and duplicates by line', () => {
   const { errors } = parseStructure(
     ['{# acf-fields: pb / x', '  a: txt', '  b: text', '    c: text', '  b: image', 'end-acf-fields #}'].join('\n')

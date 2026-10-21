@@ -65,6 +65,18 @@ export const END_RE = /^[ \t]*end-acf-fields[ \t]*-?#\}/m;
 const FIELD_RE = /^(\s*)([A-Za-z0-9_-]+)\s*:\s*([a-z_]+)(?:\s+"([^"]*)")?\s*$/;
 export const INDENT = '  ';
 
+/**
+ * A line with tabs expanded to 4-column stops, as VS Code shows them by
+ * default, so a Tab-indented sub field nests under a space-indented parent.
+ */
+export function expandTabs(line: string): string {
+  let out = '';
+  for (const ch of line) {
+    out += ch === '\t' ? ' '.repeat(4 - (out.length % 4)) : ch;
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Formatting
 // ---------------------------------------------------------------------------
@@ -189,7 +201,7 @@ export function parseStructure(text: string): { block?: StructureBlock; errors: 
     if (raw.trim() === '') {
       return;
     }
-    const m = FIELD_RE.exec(raw.replace(/\t/g, INDENT));
+    const m = FIELD_RE.exec(expandTabs(raw));
     if (!m) {
       errors.push({ line, message: 'Expected "name: type" or "name: type "Label"".' });
       return;

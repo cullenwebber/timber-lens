@@ -4,7 +4,7 @@
 
 import { AcfField } from '../models/acf';
 import { AcfIndex } from './acfResolver';
-import { ACF_TYPES, CONTAINER_TYPES, END_RE, HEADER_RE, INDENT, humanize } from './fieldStructure';
+import { ACF_TYPES, CONTAINER_TYPES, END_RE, HEADER_RE, expandTabs, humanize } from './fieldStructure';
 
 /** What is being typed at the cursor, and where on the structure line. */
 export type StructureCursor =
@@ -88,7 +88,7 @@ export function structureCursorAt(text: string, offset: number): StructureCursor
     current++;
   }
   const lineText = lines[current] ?? '';
-  const before = lineText.slice(0, offset - lineStart).replace(/\t/g, INDENT);
+  const before = expandTabs(lineText.slice(0, offset - lineStart));
   const after = lineText.slice(offset - lineStart);
 
   const name = /^(\s*)([A-Za-z0-9_-]*)$/.exec(before);
@@ -125,7 +125,7 @@ export function structureCursorAt(text: string, offset: number): StructureCursor
 
 /** The parent field and sibling names for a line at `indent`. */
 function levelOf(lines: string[], current: number, indent: number): Omit<FieldLevel, 'layoutName'> {
-  const parsed = lines.map((l) => LINE_RE.exec(l.replace(/\t/g, INDENT)));
+  const parsed = lines.map((l) => LINE_RE.exec(expandTabs(l)));
 
   let parentLine = -1;
   for (let i = current - 1; i >= 0; i--) {
